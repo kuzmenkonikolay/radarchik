@@ -1,0 +1,5 @@
+/* Имя в Finder и в системных запросах. */
+"CFBundleDisplayName" = "Radarchik";
+
+/* Запрос Automation: адрес активной вкладки браузера. */
+"NSAppleEventsUsageDescription" = "Radarchik reads the address of the active browser tab to see which sites your day goes to. Addresses stay on this Mac only, without parameters or tokens.";

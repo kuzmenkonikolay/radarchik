@@ -1,0 +1,12 @@
+.build/
+build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+*.xcodeproj
+.DS_Store
+
+# ТЗ и журнал решений — рабочий документ, живёт только локально.
+SPEC.md
+# Ролики и тексты постов для запуска (их пересобирает --render-promo).
+launch/

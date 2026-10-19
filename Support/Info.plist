@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.kuzmenko.radarchik</string>
+	<key>CFBundleName</key>
+	<string>Radarchik</string>
+	<!-- По-русски «Радарчик» — в ru.lproj/InfoPlist.strings. -->
+	<key>CFBundleDisplayName</key>
+	<string>Radarchik</string>
+	<key>CFBundleExecutable</key>
+	<string>Radarchik</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<!-- Интерфейс на двух языках (2026-10-19): какой показывать, Радарчик решает
+	     сам (`LanguageChoice`), а этот список нужен системе — для её запросов
+	     разрешений и для выбора языка приложения в Системных настройках. -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>ru</string>
+	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<!-- Без иконки в Dock и без своего меню: всё живёт в чёлке. -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<!-- Текст системного запроса Automation: адрес активной вкладки браузера (этап 3). -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Radarchik reads the address of the active browser tab to see which sites your day goes to. Addresses stay on this Mac only, without parameters or tokens.</string>
+</dict>
+</plist>

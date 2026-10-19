@@ -1,0 +1,24 @@
+# Тесты логики на каждый пуш в main и на пул-реквесты.
+# macos-15 — там Xcode 16 со Swift 6, как требует Package.swift.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build the app
+        run: swift build
+      - name: Test
+        run: swift test
