@@ -235,23 +235,11 @@ final class NotchController {
 
     /// Где глаза в координатах экрана — от них считаем, куда смотреть.
     /// Верх фигуры — верх экрана, поэтому считаем от `maxY` (в AppKit y вверх).
+    /// Лицо всегда по центру: в подбородке или на сводке.
     private var eyesCenter: CGPoint {
         let rect = shapeRect
-        let notchHeight = model.geometry.notchRect.height
-        if settings.mascotSkin == .livingNotch {
-            // Лицо Живой чёлки всегда по центру: в подбородке или на сводке.
-            let placement = FacePlacement(isExpanded: model.isExpanded, route: model.route)
-            return CGPoint(x: rect.midX, y: rect.maxY - placement.eyeCenterY(notchHeight: notchHeight))
-        }
-        if !model.isExpanded {
-            // Подбородок Домового — сразу под вырезом.
-            return CGPoint(x: rect.midX, y: rect.minY + 8)
-        }
-        // Портрет на сводке — слева сверху, сразу под вырезом.
-        return CGPoint(
-            x: rect.minX + DS.Spacing.md + DS.Size.mascot / 2,
-            y: rect.maxY - notchHeight - DS.Spacing.xs - DS.Size.mascot / 2
-        )
+        let placement = FacePlacement(isExpanded: model.isExpanded, route: model.route)
+        return CGPoint(x: rect.midX, y: rect.maxY - placement.eyeCenterY(notchHeight: model.geometry.notchRect.height))
     }
 
     /// Раскрыта — глаза смотрят на курсор.

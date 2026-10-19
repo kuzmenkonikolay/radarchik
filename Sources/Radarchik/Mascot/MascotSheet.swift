@@ -1,9 +1,12 @@
 import AppKit
+import ImageIO
 import SwiftUI
+import UniformTypeIdentifiers
 import RadarchikCore
 
-/// Лист со всеми обликами и состояниями в реальном размере чёлки — для выбора
-/// персонажа и для моей проверки рисовки (я экран не вижу, а PNG — вижу).
+/// Лист Живой чёлки во всех состояниях в реальном размере, все рисовки глаз
+/// (картинкой и петлёй) — для выбора и для моей проверки рисовки (я экран
+/// не вижу, а PNG — вижу).
 ///
 /// Запуск: `.build/debug/Radarchik --render-mascots <папка>` — рисует и выходит,
 /// панель не создаётся.
@@ -15,11 +18,10 @@ enum MascotSheetRenderer {
 
     static func render(to folder: URL) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try write(MascotSheet(skins: MascotSkin.allCases), to: folder.appendingPathComponent("mascots.png"))
-        for skin in MascotSkin.allCases {
-            try write(MascotSheet(skins: [skin]), to: folder.appendingPathComponent("mascot-\(skin.rawValue).png"))
-        }
+        try write(MascotSheet(), to: folder.appendingPathComponent("mascot.png"))
         try write(SystemSheet(), to: folder.appendingPathComponent("system.png"))
+        try write(EyesSheet(), to: folder.appendingPathComponent("eyes.png"))
+        try writeEyesGIF(to: folder.appendingPathComponent("eyes.gif"))
     }
 
     private static func write(_ view: some View, to url: URL) throws {
@@ -30,97 +32,36 @@ enum MascotSheetRenderer {
         else { throw Failure(description: "не отрисовалось: \(url.lastPathComponent)") }
         try data.write(to: url)
     }
+
+    /// Петля сравнения глаз: в статике не видно ни развёртки, ни скачков матрицы.
+    private static func writeEyesGIF(to url: URL) throws {
+        let fps = 15.0
+        let count = Int(EyesShow.duration * fps)
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, count, nil) else {
+            throw Failure(description: "не создался GIF: \(url.lastPathComponent)")
+        }
+        CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+        let frameProperties = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 1 / fps]] as CFDictionary
+        for index in 0..<count {
+            try autoreleasepool {
+                let renderer = ImageRenderer(content: EyesShowFrame(t: Double(index) / fps).environment(\.colorScheme, .dark))
+                renderer.scale = 2
+                guard let image = renderer.cgImage else { throw Failure(description: "кадр \(index) не отрисовался") }
+                CGImageDestinationAddImage(destination, image, frameProperties)
+            }
+        }
+        guard CGImageDestinationFinalize(destination) else { throw Failure(description: "GIF не записался") }
+    }
 }
 
 struct MascotSheet: View {
-    var skins: [MascotSkin]
-
     /// Размер выреза MacBook Pro 14" в pt.
     private let notch = CGSize(width: 185, height: 32)
 
-    private let collapsedCases: [(MascotState, AntennaSignal, String)] = [
-        (.idleScan, .green, "в плюсе, растём"),
-        (.idleScan, .orange, "в минусе"),
-        (.idleScan, .tipsReady, "готовы советы"),
-        (.sleep, .blue, "спит"),
-    ]
-
-    private let expandedCases: [(MascotState, AntennaSignal, String)] = [
-        (.peek, .blue, "выглянул"),
-        (.happy, .green, "растём"),
-        (.worried, .yellow, "проседаем"),
-        (.nervous, .orange, "в минусе"),
-        (.tipWave, .blue, "советы"),
-        (.catchCoin, .green, "доход"),
-        (.sleep, .dim, "спит"),
-    ]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            ForEach(skins) { skin in
-                if skin == .livingNotch {
-                    LivingNotchSheet(notch: notch)
-                } else {
-                    classic(skin)
-                }
-            }
-        }
-        .padding(28)
-        .background(Color(hex: "#1C1C1E"))
-    }
-
-    /// Запасные облики: подбородок и портрет по отдельности, как раньше.
-    private func classic(_ skin: MascotSkin) -> some View {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(skin.title)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("Свёрнуто — как в чёлке, поверх строки меню и окна")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.gray)
-                    HStack(alignment: .top, spacing: 20) {
-                        ForEach(Array(collapsedCases.enumerated()), id: \.offset) { _, item in
-                            captioned(item.2) { collapsed(skin: skin, state: item.0, signal: item.1) }
-                        }
-                    }
-                    Text("Раскрыто — в реальном размере")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.gray)
-                    HStack(alignment: .top, spacing: 14) {
-                        ForEach(Array(expandedCases.enumerated()), id: \.offset) { _, item in
-                            captioned(item.2) {
-                                MascotPortrait(skin: skin, state: item.0, signal: item.1, gaze: CGPoint(x: 0.4, y: 0.2))
-                                    .frame(width: 72, height: 72)
-                                    .padding(10)
-                                    .background(RoundedRectangle(cornerRadius: 16).fill(.black))
-                            }
-                        }
-                    }
-                }
-    }
-
-    private func captioned(_ caption: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(spacing: 6) {
-            content()
-            Text(caption)
-                .font(.system(size: 10))
-                .foregroundStyle(.gray)
-        }
-    }
-
-    /// Кусочек экрана: строка меню, под ней окно, по центру — вырез и наша чёлка.
-    private func collapsed(skin: MascotSkin, state: MascotState, signal: AntennaSignal) -> some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                Rectangle().fill(Color(hex: "#3A3A3C")).frame(height: notch.height)
-                Rectangle().fill(Color(hex: "#ECECEC")).frame(height: 34)
-            }
-            // Фигура — по размеру вида, как в панели.
-            CollapsedMascot(skin: skin, state: state, signal: signal, notchSize: notch)
-                .background(NotchShape.collapsed(skin: skin, notchHeight: notch.height).fill(.black))
-        }
-        .frame(width: 300, height: notch.height + 34)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        LivingNotchSheet(notch: notch)
+            .padding(28)
+            .background(Color(hex: "#1C1C1E"))
     }
 }
 
@@ -147,7 +88,7 @@ private struct LivingNotchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(MascotSkin.livingNotch.title)
+            Text("Живая чёлка")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white)
 
@@ -302,10 +243,13 @@ struct LivingNotchMock: View {
     var notch: CGSize
     var gaze: CGPoint = .zero
     var screen: Screen = .summary
+    var eyes: EyeStyle = .capsule
+    var lids: CGFloat = 0
+    var clock: TimeInterval?
 
     var body: some View {
         let p = progress
-        let bump = MascotSkin.livingNotch.bump
+        let chin = NotchShape.chin
         let start = FacePlacement.chin
         let target: FacePlacement = screen.isSummary ? .hero : .chin
         let contentHeight: CGFloat = switch screen {
@@ -314,7 +258,7 @@ struct LivingNotchMock: View {
         case .alert: 150
         }
         let width = lerp(notch.width, DS.Size.expandedWidth, p)
-        let height = lerp(notch.height + bump.height, notch.height + target.contentTop + contentHeight, p)
+        let height = lerp(notch.height + chin.height, notch.height + target.contentTop + contentHeight, p)
         let shape = interpolatedShape(p)
         ZStack(alignment: .top) {
             shape.fill(.black)
@@ -327,7 +271,10 @@ struct LivingNotchMock: View {
                 signal: signal,
                 gaze: gaze,
                 scale: lerp(start.scale, target.scale, p),
-                eyeCenterY: lerp(start.eyeCenterY(notchHeight: notch.height), target.eyeCenterY(notchHeight: notch.height), p)
+                eyeCenterY: lerp(start.eyeCenterY(notchHeight: notch.height), target.eyeCenterY(notchHeight: notch.height), p),
+                lids: lids,
+                eyes: eyes,
+                clock: clock
             )
         }
         .frame(width: width, height: height, alignment: .top)
@@ -382,7 +329,7 @@ struct LivingNotchMock: View {
 
     /// Та же интерполяция, что делает SwiftUI: между двумя крайними формами.
     private func interpolatedShape(_ p: CGFloat) -> NotchShape {
-        var shape = NotchShape.collapsed(skin: .livingNotch, notchHeight: notch.height)
+        var shape = NotchShape.collapsed(notchHeight: notch.height)
         var delta = NotchShape.expanded(notchHeight: notch.height).animatableData - shape.animatableData
         delta.scale(by: Double(p))
         shape.animatableData += delta
@@ -399,8 +346,8 @@ private struct WingsMock: View {
     let notch: CGSize
 
     var body: some View {
-        CollapsedMascot(skin: .livingNotch, state: .idleScan, signal: .green, notchSize: notch, leading: leading, trailing: trailing)
-            .background(NotchShape.collapsed(skin: .livingNotch, notchHeight: notch.height).fill(.black))
+        CollapsedMascot(notchSize: notch, leading: leading, trailing: trailing)
+            .background(NotchShape.collapsed(notchHeight: notch.height).fill(.black))
             .overlay(alignment: .top) {
                 PlacedLivingFace(state: .idleScan, signal: .green, scale: 1, eyeCenterY: FacePlacement.chin.eyeCenterY(notchHeight: notch.height))
             }
@@ -414,12 +361,169 @@ private struct AnnouncementMock: View {
 
     var body: some View {
         let shape = NotchShape.announcement(notchHeight: notch.height)
-        AnnouncementView(alert: alert, skin: .livingNotch, notchHeight: notch.height)
+        AnnouncementView(alert: alert, notchHeight: notch.height)
             .background(shape.fill(.black))
             .overlay(alignment: .top) {
                 PlacedLivingFace(state: .worried, signal: .green, scale: 1, eyeCenterY: FacePlacement.chin.eyeCenterY(notchHeight: notch.height))
             }
             .clipShape(shape)
+    }
+}
+
+/// Все рисовки глаз (`EyeStyle`) рядом: свёрнутая чёлка в реальном размере и верх сводки.
+private struct EyesSheet: View {
+    private let notch = CGSize(width: 185, height: 32)
+
+    private let collapsedCases: [(MascotState, AntennaSignal, String)] = [
+        (.idleScan, .green, "в плюсе"),
+        (.idleScan, .orange, "в минусе"),
+        (.worried, .yellow, "тревога"),
+        (.idleScan, .tipsReady, "готовы советы"),
+        (.sleep, .blue, "спит"),
+    ]
+
+    private let summaryCases: [(MascotState, AntennaSignal, String)] = [
+        (.peek, .blue, "выглянула"),
+        (.happy, .green, "растём"),
+        (.worried, .yellow, "проседаем"),
+        (.nervous, .orange, "в минусе"),
+        (.tipWave, .blue, "советы"),
+        (.catchCoin, .green, "доход"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            ForEach(EyeStyle.allCases) { style in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(style.title)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                    HStack(alignment: .top, spacing: 14) {
+                        ForEach(Array(collapsedCases.enumerated()), id: \.offset) { _, item in
+                            EyesLabeled(text: item.2) {
+                                EyesScreen(notch: notch, width: 200) {
+                                    LivingNotchMock(state: item.0, signal: item.1, progress: 0, notch: notch, gaze: CGPoint(x: 0.6, y: 0.3), eyes: style, clock: 0.5)
+                                }
+                            }
+                        }
+                    }
+                    HStack(alignment: .top, spacing: 14) {
+                        ForEach(Array(summaryCases.enumerated()), id: \.offset) { _, item in
+                            EyesLabeled(text: item.2) {
+                                LivingNotchMock(state: item.0, signal: item.1, progress: 1, notch: notch, gaze: CGPoint(x: 0.4, y: 0.3), eyes: style, clock: 0.5)
+                                    .frame(width: 160, height: notch.height + FacePlacement.hero.contentTop, alignment: .top)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(28)
+        .background(Color(hex: "#1C1C1E"))
+    }
+}
+
+/// «Выступление» для петли сравнения глаз: по очереди все состояния, взгляд
+/// гуляет восьмёркой, в середине каждой сцены моргает. Свёрнутая чёлка в тот
+/// же момент — в том состоянии, что дал бы ей `MascotBrain`.
+private enum EyesShow {
+    struct Beat {
+        let state: MascotState
+        let signal: AntennaSignal
+        let caption: String
+        let collapsed: MascotState
+    }
+
+    static let beats = [
+        Beat(state: .peek, signal: .blue, caption: "выглянула", collapsed: .idleScan),
+        Beat(state: .happy, signal: .green, caption: "растём", collapsed: .idleScan),
+        Beat(state: .worried, signal: .yellow, caption: "проседаем", collapsed: .worried),
+        Beat(state: .nervous, signal: .orange, caption: "в минусе", collapsed: .worried),
+        Beat(state: .catchCoin, signal: .green, caption: "доход", collapsed: .catchCoin),
+        Beat(state: .tipWave, signal: .tipsReady, caption: "готовы советы", collapsed: .idleScan),
+        Beat(state: .sleep, signal: .dim, caption: "спит", collapsed: .sleep),
+    ]
+    static let beatLength = 2.0
+    static var duration: Double { Double(beats.count) * beatLength }
+
+    static func beat(at t: Double) -> Beat {
+        beats[min(Int(t / beatLength), beats.count - 1)]
+    }
+
+    static func gaze(at t: Double) -> CGPoint {
+        guard beat(at: t).state != .sleep else { return .zero }
+        return CGPoint(x: sin(t * 1.9), y: 0.5 * sin(t * 3.1))
+    }
+
+    static func lids(at t: Double) -> CGFloat {
+        (1.2..<1.33).contains(t.truncatingRemainder(dividingBy: beatLength)) ? 1 : 0
+    }
+}
+
+/// Кадр петли: сверху сводка, под ней свёрнутая чёлка — для каждой рисовки.
+private struct EyesShowFrame: View {
+    var t: Double
+
+    private let notch = CGSize(width: 185, height: 32)
+
+    var body: some View {
+        let beat = EyesShow.beat(at: t)
+        let gaze = EyesShow.gaze(at: t)
+        let lids = EyesShow.lids(at: t)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(beat.caption)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.gray)
+            HStack(alignment: .top, spacing: 14) {
+                ForEach(EyeStyle.allCases) { style in
+                    VStack(spacing: 8) {
+                        LivingNotchMock(state: beat.state, signal: beat.signal, progress: 1, notch: notch, gaze: gaze, eyes: style, lids: lids, clock: t)
+                            .frame(width: 180, height: notch.height + FacePlacement.hero.contentTop, alignment: .top)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        EyesScreen(notch: notch, width: 180) {
+                            LivingNotchMock(state: beat.collapsed, signal: beat.signal, progress: 0, notch: notch, gaze: gaze, eyes: style, lids: lids, clock: t)
+                        }
+                        Text(style.title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(Color(hex: "#1C1C1E"))
+    }
+}
+
+private struct EyesLabeled<Content: View>: View {
+    let text: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 6) {
+            content
+            Text(text).font(.system(size: 10)).foregroundStyle(.gray)
+        }
+    }
+}
+
+/// Кусочек экрана: строка меню, под ней окно, по центру — свёрнутая чёлка.
+private struct EyesScreen<Content: View>: View {
+    let notch: CGSize
+    let width: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                Rectangle().fill(Color(hex: "#3A3A3C")).frame(height: notch.height)
+                Rectangle().fill(Color(hex: "#ECECEC"))
+            }
+            content
+        }
+        .frame(width: width, height: notch.height + 26, alignment: .top)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

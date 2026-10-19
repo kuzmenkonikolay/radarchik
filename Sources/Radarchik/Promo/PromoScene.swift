@@ -56,12 +56,12 @@ final class PromoWorld {
             status: .active, statusChangedAt: nil
         )
         let wings = self.wings(money: 292_300, cpu: 74, temperature: 71)
-        wingsSize = Self.measure(CollapsedMascot(skin: .livingNotch, state: .idleScan, signal: .green, notchSize: notch, leading: wings.leading, trailing: wings.trailing))
+        wingsSize = Self.measure(CollapsedMascot(notchSize: notch, leading: wings.leading, trailing: wings.trailing))
         show(.tips)
         tipsSize = Self.measure(panel(.tips))
         show(nil)
         summarySize = Self.measure(panel(nil))
-        announcementSize = Self.measure(AnnouncementView(alert: alert, skin: .livingNotch, notchHeight: notch.height))
+        announcementSize = Self.measure(AnnouncementView(alert: alert, notchHeight: notch.height))
     }
 
     /// Открыть нужный экран в модели — до того, как кадр начнут рисовать:
@@ -329,11 +329,11 @@ struct PromoNotchView: View {
 
     var body: some View {
         let notch = world.notch
-        let bump = MascotSkin.livingNotch.bump
+        let bump = NotchShape.chin
         let chin = pose.chin
         let collapsedShape = NotchShape(
             topRadius: 6, bandRadius: 10, bandHeight: notch.height,
-            chinWidth: bump.width * chin, chinRadius: max(bump.height - 4, 0) * chin
+            chinWidth: bump.width * chin, chinRadius: (bump.height - 4) * chin
         )
         let collapsedSize = CGSize(
             width: lerp(notch.width, world.wingsSize.width, pose.wings),
@@ -356,7 +356,7 @@ struct PromoNotchView: View {
         ZStack(alignment: .top) {
             shape.fill(Color.black).frame(width: size.width, height: size.height)
 
-            CollapsedMascot(skin: .livingNotch, state: pose.state, signal: pose.signal, gaze: pose.gaze, notchSize: notch, leading: wings.leading, trailing: wings.trailing)
+            CollapsedMascot(notchSize: notch, leading: wings.leading, trailing: wings.trailing)
                 .opacity(Ease.smooth(Ease.progress(pose.wings, 0.2, 0.9)) * (1 - Ease.smooth(Ease.progress(p, 0, 0.3))))
 
             if isPanel {
@@ -365,7 +365,7 @@ struct PromoNotchView: View {
                     .scaleEffect(lerp(0.94, 1, Ease.clamp01(p)), anchor: .top)
                     .opacity(Ease.smooth(Ease.progress(p, 0.3, 0.85)))
             } else if pose.announce > 0.001 {
-                AnnouncementView(alert: world.alert, skin: .livingNotch, notchHeight: notch.height)
+                AnnouncementView(alert: world.alert, notchHeight: notch.height)
                     .opacity(Ease.smooth(Ease.progress(p, 0.35, 0.9)))
             }
 

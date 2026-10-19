@@ -52,8 +52,8 @@ struct NotchStill: View {
     var gaze: CGPoint = .zero
 
     var body: some View {
-        let shape = NotchShape.collapsed(skin: .livingNotch, notchHeight: notchSize.height)
-        CollapsedMascot(skin: .livingNotch, state: state, signal: signal, gaze: gaze, notchSize: notchSize, leading: leading, trailing: trailing)
+        let shape = NotchShape.collapsed(notchHeight: notchSize.height)
+        CollapsedMascot(notchSize: notchSize, leading: leading, trailing: trailing)
             .background(shape.fill(DS.Surface.panel))
             .overlay(alignment: .top) {
                 PlacedLivingFace(

@@ -2,8 +2,7 @@ import SwiftUI
 import RadarchikCore
 
 /// Корень панели. Чёрная фигура растёт из выреза вниз. Свёрнута — под
-/// вырезом подбородок с глазами (или ухо и огонёк у запасных обликов),
-/// раскрыта — текущий экран. Размер фигуры задаёт содержимое, контроллер
+/// вырезом подбородок с глазами, раскрыта — текущий экран. Размер фигуры задаёт содержимое, контроллер
 /// узнаёт его через `model.shapeSize`.
 ///
 /// Лицо Живой чёлки (`NotchFace`) лежит поверх содержимого и переживает
@@ -20,22 +19,20 @@ struct NotchRootView: View {
     let resources: ResourceMonitor
 
     var body: some View {
-        // Свёрнутая чёлка у Домового и Живой чёлки — с «подбородком» под вырезом, где глаза.
+        // Свёрнутая чёлка — с «подбородком» под вырезом, где глаза.
         let notchHeight = model.geometry.notchRect.height
         let shape: NotchShape = if model.isExpanded {
             .expanded(notchHeight: notchHeight)
         } else if resources.announcement != nil {
             .announcement(notchHeight: notchHeight)
         } else {
-            .collapsed(skin: settings.mascotSkin, notchHeight: notchHeight)
+            .collapsed(notchHeight: notchHeight)
         }
         VStack(spacing: 0) {
             content
                 .background(shape.fill(DS.Surface.panel))
                 .overlay(alignment: .top) {
-                    if settings.mascotSkin == .livingNotch {
-                        NotchFace(model: model, store: store, tracker: tracker, review: review, resources: resources)
-                    }
+                    NotchFace(model: model, store: store, tracker: tracker, review: review, resources: resources, eyes: settings.eyeStyle)
                 }
                 .clipShape(shape)
                 .onGeometryChange(for: CGSize.self) { proxy in
@@ -63,23 +60,17 @@ struct NotchRootView: View {
         if model.isExpanded {
             ExpandedView(model: model, store: store, settings: settings, tracker: tracker, review: review, resources: resources)
                 // Под самим вырезом пикселей нет — содержимое начинается ниже,
-                // а у Живой чёлки — ещё и под её лицом.
-                .padding(.top, model.geometry.notchRect.height + contentTop)
+                // под лицом.
+                .padding(.top, model.geometry.notchRect.height + FacePlacement(isExpanded: true, route: model.route).contentTop)
                 .frame(width: DS.Size.expandedWidth)
                 .transition(.opacity)
         } else if let alert = resources.announcement {
-            AnnouncementView(alert: alert, skin: settings.mascotSkin, notchHeight: model.geometry.notchRect.height)
+            AnnouncementView(alert: alert, notchHeight: model.geometry.notchRect.height)
                 .transition(.opacity)
         } else {
-            CollapsedView(model: model, store: store, settings: settings, tracker: tracker, review: review, resources: resources)
+            CollapsedView(model: model, store: store, settings: settings, tracker: tracker, resources: resources)
                 .transition(.opacity)
         }
-    }
-
-    /// Отступ содержимого от низа выреза.
-    private var contentTop: CGFloat {
-        guard settings.mascotSkin == .livingNotch else { return DS.Spacing.xs }
-        return FacePlacement(isExpanded: true, route: model.route).contentTop
     }
 }
 
@@ -111,9 +102,14 @@ struct NotchShape: Shape {
         }
     }
 
-    /// Свёрнутая: полоса выреза и подбородок облика (у Радарчика его нет).
-    static func collapsed(skin: MascotSkin, notchHeight: CGFloat) -> NotchShape {
-        NotchShape(topRadius: 6, bandRadius: 10, bandHeight: notchHeight, chinWidth: skin.bump.width, chinRadius: max(skin.bump.height - 4, 0))
+    /// «Подбородок» под вырезом в свёрнутой чёлке — там глаза.
+    /// Внутри самого выреза пикселей нет, поэтому лицо — ниже него.
+    /// nonisolated: по нему раскладывают лицо (`FacePlacement`) вне вида.
+    nonisolated static let chin = CGSize(width: 46, height: 15)
+
+    /// Свёрнутая: полоса выреза и подбородок с глазами.
+    static func collapsed(notchHeight: CGFloat) -> NotchShape {
+        NotchShape(topRadius: 6, bandRadius: 10, bandHeight: notchHeight, chinWidth: chin.width, chinRadius: chin.height - 4)
     }
 
     /// Раскрытая: подбородок во всю ширину.

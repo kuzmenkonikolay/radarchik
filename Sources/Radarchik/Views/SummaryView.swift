@@ -17,16 +17,9 @@ struct SummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            if settings.mascotSkin == .livingNotch {
-                // Лицо рисует сама чёлка (`NotchFace`) прямо над облачком,
-                // хвостик облачка показывает на него: говорит чёлка.
-                bubble(pointsUp: true)
-            } else {
-                HStack(alignment: .top, spacing: DS.Spacing.sm) {
-                    SummaryMascot(model: model, store: store, review: review, resources: resources, skin: settings.mascotSkin)
-                    bubble(pointsUp: false)
-                }
-            }
+            // Лицо рисует сама чёлка (`NotchFace`) прямо над облачком,
+            // хвостик облачка показывает на него: говорит чёлка.
+            bubble
 
             let histories = store.overallHistory
             if !histories.isEmpty {
@@ -58,9 +51,9 @@ struct SummaryView: View {
 
     /// Тревога важнее фразы о деньгах: пока она есть, облачко о ней.
     @ViewBuilder
-    private func bubble(pointsUp: Bool) -> some View {
+    private var bubble: some View {
         if let alert = resources.activeAlert {
-            AlertBubble(alert: alert, more: resources.alerts.count - 1, pointsUp: pointsUp) {
+            AlertBubble(alert: alert, more: resources.alerts.count - 1, pointsUp: true) {
                 model.push(.system(SystemFocus(metric: SystemMetric(alert.kind), appKey: alert.app?.key)))
             } onNormal: {
                 resources.respond(alert, with: .normal)
@@ -71,7 +64,7 @@ struct SummaryView: View {
             .id(alert.id)
             .onAppear { resources.markSeen(alert) }
         } else {
-            SpeechBubble(text: store.phrase, pointsUp: pointsUp)
+            SpeechBubble(text: store.phrase, pointsUp: true)
         }
     }
 
@@ -155,27 +148,6 @@ private struct ObservationOffCard: View {
         .padding(.trailing, 6)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: DS.Radius.card).fill(DS.Surface.card))
-    }
-}
-
-/// Радарчик на сводке. Отдельный view нарочно: взгляд меняется на каждое
-/// движение мыши, и перерисовываться должен только он, а не вся сводка
-/// с пересчётом денег (SwiftUI следит за тем, что читает именно этот body).
-private struct SummaryMascot: View {
-    let model: NotchViewModel
-    let store: MoneyStore
-    let review: ReviewService
-    let resources: ResourceMonitor
-    let skin: MascotSkin
-
-    var body: some View {
-        let mood = store.overallMood
-        let state = MascotBrain.state(
-            isExpanded: true, mood: mood, isResting: model.isResting, event: store.mascotEvent,
-            hasNewTips: review.newTipsCount > 0, hasResourceAlert: resources.activeAlert != nil
-        )
-        MascotPortrait(skin: skin, state: state, signal: mood?.antenna ?? .dim, gaze: model.gaze)
-            .frame(width: DS.Size.mascot, height: DS.Size.mascot)
     }
 }
 

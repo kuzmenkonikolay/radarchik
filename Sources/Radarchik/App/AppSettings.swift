@@ -3,7 +3,7 @@ import Observation
 import ServiceManagement
 import RadarchikCore
 
-/// Настройки в UserDefaults: язык, деньги, облик, наблюдение (этап 3), разбор дня (этап 4),
+/// Настройки в UserDefaults: язык, деньги, глаза маскота, наблюдение (этап 3), разбор дня (этап 4),
 /// ресурсы мака (этап 6). Ключ Claude — не здесь, а в Связке ключей.
 @MainActor
 @Observable
@@ -27,9 +27,10 @@ final class AppSettings {
     private(set) var launchAtLogin: Bool
     var launchAtLoginError: String?
 
-    /// Облик маскота (этап 5). Финальный — Живая чёлка, Домовой и Радарчик — запасные.
-    var mascotSkin: MascotSkin {
-        didSet { defaults.set(mascotSkin.rawValue, forKey: Key.mascotSkin) }
+    /// Какими глазами смотрит Живая чёлка (2026-10-19). По умолчанию — первые, капсулы.
+    /// Облик у маскота один: запасные Домовой и Радарчик убраны в тот же день.
+    var eyeStyle: EyeStyle {
+        didSet { defaults.set(eyeStyle.rawValue, forKey: Key.eyeStyle) }
     }
 
     // MARK: - Наблюдение (этап 3)
@@ -103,13 +104,7 @@ final class AppSettings {
         }
         self.languageChoice = defaults.string(forKey: Key.language).flatMap(LanguageChoice.init(rawValue:)) ?? .system
         self.showNumbersWhenCollapsed = defaults.bool(forKey: Key.showNumbers)
-        // Живую чёлку выбрали финальной 2026-10-18. Один раз включаем её,
-        // даже если при сравнении последним остался другой облик; дальше — как выберешь.
-        if !defaults.bool(forKey: Key.livingNotchChosen) {
-            defaults.set(true, forKey: Key.livingNotchChosen)
-            defaults.set(MascotSkin.livingNotch.rawValue, forKey: Key.mascotSkin)
-        }
-        self.mascotSkin = defaults.string(forKey: Key.mascotSkin).flatMap(MascotSkin.init(rawValue:)) ?? .livingNotch
+        self.eyeStyle = defaults.string(forKey: Key.eyeStyle).flatMap(EyeStyle.init(rawValue:)) ?? .capsule
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.observationEnabled = defaults.bool(forKey: Key.observationEnabled)
         self.excludedApps = (defaults.stringArray(forKey: Key.excludedApps)).map(Set.init) ?? ObservationRules.defaultExcludedApps
@@ -149,8 +144,11 @@ final class AppSettings {
         static let language = "language"
         static let proxyOptionalMigrated = "proxyOptionalMigrated"
         static let showNumbers = "showNumbersWhenCollapsed"
+        // Облик больше не выбирается, эти два ключа не пишутся. По ним только
+        // узнаём старую установку при переносе прокси.
         static let mascotSkin = "mascotSkin"
         static let livingNotchChosen = "livingNotchChosen"
+        static let eyeStyle = "eyeStyle"
         static let observationEnabled = "observationEnabled"
         static let excludedApps = "excludedApps"
         static let excludedDomains = "excludedDomains"

@@ -28,9 +28,9 @@ struct SettingsView: View {
 
     private var appearance: some View {
         PanelGroup(L("Вид", "Appearance")) {
-            // Живая чёлка — основной облик, Домовой и Радарчик — запасные.
-            SettingRow(L("Облик", "Look")) {
-                SegmentedPicker(selection: $settings.mascotSkin, fills: false) { $0.title }
+            // Облик один — Живая чёлка, выбираются только глаза.
+            SettingRow(L("Глаза", "Eyes")) {
+                SegmentedPicker(selection: $settings.eyeStyle, fills: false) { $0.title }
             }
             SettingRow(L("Язык", "Language")) {
                 SegmentedPicker(selection: $settings.languageChoice, fills: false) { $0.title }

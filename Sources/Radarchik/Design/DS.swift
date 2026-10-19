@@ -32,7 +32,6 @@ enum DS {
         /// Окно панели: с запасом под самый высокий экран (проект).
         static let panelWidth: CGFloat = 540
         static let panelHeight: CGFloat = 720
-        static let mascot: CGFloat = 64
         /// Ширина подписей слева в формах.
         static let formLabel: CGFloat = 116
         /// Записка о тревоге под свёрнутой чёлкой (этап 6).
@@ -83,13 +82,8 @@ enum DS {
         static let bar = Color(hex: "#3987E5")
     }
 
-    /// Цвета Радарчика (заглушка, пока персонаж не утверждён).
+    /// Цвета маскота: монетка, которой становятся глаза, когда пришёл доход.
     enum Mascot {
-        static let bodyTop = Color(hex: "#D3EEFB")
-        static let bodyBottom = Color(hex: "#9DD2EF")
-        static let ear = Color(hex: "#8CC6E8")
-        static let earDish = Color(hex: "#5FA6D3")
-        static let ink = Color(hex: "#23232B")
         static let coin = Color(hex: "#FAB219")
     }
 

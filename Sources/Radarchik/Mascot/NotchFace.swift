@@ -11,6 +11,7 @@ struct NotchFace: View {
     let tracker: ActivityTracker
     let review: ReviewService
     let resources: ResourceMonitor
+    let eyes: EyeStyle
 
     var body: some View {
         let placement = FacePlacement(isExpanded: model.isExpanded, route: model.route)
@@ -33,7 +34,8 @@ struct NotchFace: View {
             state: state,
             signal: signal,
             scale: placement.scale,
-            eyeCenterY: placement.eyeCenterY(notchHeight: model.geometry.notchRect.height)
+            eyeCenterY: placement.eyeCenterY(notchHeight: model.geometry.notchRect.height),
+            eyes: eyes
         )
     }
 }
@@ -46,8 +48,9 @@ private struct GazingFace: View {
     let signal: AntennaSignal
     let scale: CGFloat
     let eyeCenterY: CGFloat
+    let eyes: EyeStyle
 
     var body: some View {
-        PlacedLivingFace(state: state, signal: signal, gaze: model.gaze, scale: scale, eyeCenterY: eyeCenterY)
+        PlacedLivingFace(state: state, signal: signal, gaze: model.gaze, scale: scale, eyeCenterY: eyeCenterY, eyes: eyes)
     }
 }
