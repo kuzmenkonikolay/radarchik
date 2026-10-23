@@ -9,7 +9,7 @@
 #   make install  — положить в ~/Applications (нужно для «Запускать при входе»)
 #   make zip      — build/Radarchik.zip для релиза на GitHub
 #   make docs     — скриншоты README, превью ссылки и петля GIF (docs/)
-#   make promo    — ролики для X и Contra (launch/, в git не попадают)
+#   make promo    — ролики для X и Contra: 16:9, 1:1 и 4:3 для обложки (launch/, в git не попадают)
 #   make install-guard   — root-часть «Защиты» (SPEC §3б): ставится один раз, sudo спросит
 #                          пароль; в конце сама перезапускает Радарчик. Дальше её обновляет make run
 #   make uninstall-guard — убрать её, вернув ключи тебе
@@ -98,6 +98,7 @@ promo:
 	mkdir -p launch
 	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-wide.mp4 --format wide -AppleLocale en_US $(if $(VOICE),--voice $(VOICE))
 	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-square.mp4 --format square -AppleLocale en_US $(if $(VOICE),--voice $(VOICE))
+	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-cover.mp4 --format cover -AppleLocale en_US $(if $(VOICE),--voice $(VOICE))
 
 clean:
 	rm -rf .build "$(BUILD_DIR)"
