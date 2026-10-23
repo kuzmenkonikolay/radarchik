@@ -14,14 +14,21 @@ final class ResourceNotifier: NSObject, UNUserNotificationCenterDelegate {
         center.delegate = self
     }
 
+    // Центр уведомлений — только через колбэки: в SDK macOS 15 (Xcode 16) ни он сам,
+    // ни его настройки не `Sendable`, и `await center.…` с главного потока там не
+    // собирается. Из колбэков уходит только Bool.
+
     /// Спросить разрешение (один раз macOS покажет запрос). false — запретили.
     func requestAuthorization() async -> Bool {
-        (try? await center.requestAuthorization(options: [.alert])) ?? false
+        let center = center
+        return await withCheckedContinuation { continuation in
+            center.requestAuthorization(options: [.alert]) { granted, _ in
+                continuation.resume(returning: granted)
+            }
+        }
     }
 
     /// Запрещено ли в Системных настройках — сказать об этом на экране настроек.
-    /// Через колбэк: из него уходит только Bool. В SDK macOS 15 (Xcode 16) сами
-    /// настройки не `Sendable`, и `await notificationSettings()` там не собирается.
     func isDenied() async -> Bool {
         let center = center
         return await withCheckedContinuation { continuation in
@@ -36,7 +43,7 @@ final class ResourceNotifier: NSObject, UNUserNotificationCenterDelegate {
         content.title = L("Радарчик", "Radarchik")
         content.body = alert.speech
         let request = UNNotificationRequest(identifier: "resource-\(alert.id)", content: content, trigger: nil)
-        Task { try? await center.add(request) }
+        center.add(request)
     }
 
     // Радарчик почти никогда не «активное» приложение, но на всякий случай
