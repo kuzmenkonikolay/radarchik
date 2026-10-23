@@ -1,13 +1,15 @@
 import SwiftUI
 import RadarchikCore
 
-// Ролик для X и Contra (2026-10-19): Радарчик рисует его сам, из настоящих
-// экранов на выдуманных данных (английский `PreviewWorld`). Кадр — функция
-// времени: `PromoTimeline.pose(at:)` говорит, что где, `PromoFrame` рисует.
+// Ролик для X и Contra (2026-10-19, главы «Защиты» 2026-10-24): Радарчик рисует его
+// сам, из настоящих экранов на выдуманных данных (английский `PreviewWorld` с «Защитой»).
+// Кадр — функция времени: `PromoTimeline.pose(at:)` говорит, что где, `PromoFrame` рисует.
 //
-// Сюжет, ~28 с: голая чёлка → просыпается → крылья с итогом месяца, который
-// растёт из минуса в плюс → наведение раскрывает сводку с графиком → тревога
-// «Arc ест 4,1 ГБ» → советы Claude → заставка со ссылкой на GitHub.
+// Сюжет, ~41 с: голая чёлка → просыпается → крылья с итогом месяца и маком →
+// наведение раскрывает главную → тревога «Arc ест 4,1 ГБ» → замок открытого ключа
+// в крыле → скрипт из npm пошёл на голый адрес → «Что это?» спрашивает Claude →
+// «Убить» → советы Claude → заставка со ссылкой на GitHub. Денег и оплаты в алертах
+// нет (2026-10-24, пользователь).
 
 /// Формат кадра: широкий — для X и Contra, квадратный — для ленты с телефона.
 enum PromoFormat: String {
@@ -26,10 +28,37 @@ enum PromoFormat: String {
 
     /// Приближение у свёрнутой чёлки и у раскрытой панели (к `baseScale`).
     /// Панель дизайна v2 широкая (860), поэтому к ней камера почти не приближается.
-    var closeZoom: Double { self == .wide ? 2.2 : 3.0 }
+    var closeZoom: Double { self == .wide ? 2.2 : 2.6 }
+    /// Ещё ближе, пока Радарчик просыпается: полоска без цифр, лицо крупно.
+    var wakeZoom: Double { self == .wide ? 3.0 : 4.0 }
     var panelZoom: Double { self == .wide ? 1.0 : 1.45 }
+    /// У алерта: самый высокий (с ответом Claude) и подпись под ним влезают в кадр.
+    var alertZoom: Double { self == .wide ? 1.35 : 2.1 }
     /// Сдвиг чёлки вправо, пока панель раскрыта: слева место для подписи.
     var panelPan: Double { self == .wide ? 340 : 0 }
+}
+
+/// Алерт, который выезжает из чёлки.
+enum PromoAlert: Hashable {
+    /// Arc ест 4,1 ГБ — втрое больше обычного.
+    case resource
+    /// node -e из Cursor (ролик-стинг).
+    case process
+    /// Скрипт из npm сразу после установки пошёл на голый адрес (сетевой надзор).
+    case network
+}
+
+/// «Что это?» в алерте: не спрашивали, Claude думает (шаг 1…3), ответил.
+enum PromoExplain: Hashable {
+    case none
+    case thinking(Int)
+    case answer
+}
+
+/// Что нарисовано в раскрытой чёлке: экран (nil — главная) или алерт.
+enum PromoShown: Hashable {
+    case screen(Route?)
+    case alert(PromoAlert, PromoExplain)
 }
 
 /// Мир ролика: английские выдуманные данные и размеры экранов, измеренные один раз.
@@ -40,73 +69,106 @@ final class PromoWorld {
     let notch = CGSize(width: 220, height: 38)
 
     let preview: PreviewWorld
-    let alert: ResourceAlert
-    /// Размеры экранов панели по маршруту — меряются один раз.
-    private var sizes: [Route?: CGSize] = [:]
-    /// Тревога «Защиты» для ролика: та же, что в листе экранов (`PreviewWorld.showGuardAlert`).
-    let guardEvent: Int64 = 900
+    /// Размеры видов панели и лицо, которое каждый просит (`faceSlot`), — меряются
+    /// один раз: лицо и высота перетекают из прошлого вида алерта в новый.
+    private var sizes: [PromoShown: CGSize] = [:]
+    private var faces: [PromoShown: FaceSpec] = [:]
+    /// Ширина свёрнутой полоски по тому, насколько выдвинут замок (0…1 шагом 1/20):
+    /// стороны раскладки равны большей, поэтому полоска растёт не линейно — мерим.
+    private var barWidths: [CGFloat] = []
+    /// Что сейчас открыто в модели.
+    private var current: PromoShown?
 
-    /// `withGuard` — включить «Защиту»: кнопка Guard в тулбаре и замок в полоске (ролик-стинг).
+    /// `withGuard` — включить «Защиту»: кнопки Guard и сети в тулбаре.
     init(withGuard: Bool = false) throws {
         preview = try PreviewWorld(language: .en, withGuard: withGuard)
-        let gib = 1_073_741_824.0
-        let now = Date()
-        alert = ResourceAlert(
-            id: 1, kind: .memory, app: AppIdentity(key: "company.thebrowser.Browser", name: "Arc"),
-            value: 4.1 * gib, usual: 1.37 * gib, startedAt: now.addingTimeInterval(-180), createdAt: now,
-            title: ResourcePhrase.memory(app: "Arc", bytes: 4.1 * gib, usual: 1.37 * gib, totalBytes: 48 * gib), detail: nil,
-            status: .active, statusChangedAt: nil
-        )
-        barSizes = [
-            false: Self.measure(PromoBar(pose: Self.fullBar(guard: nil), notch: notch)),
-            true: Self.measure(PromoBar(pose: Self.fullBar(guard: "ssh 8:88"), notch: notch)),
-        ]
-        for route in [nil, .tips, .project(preview.mainProject.id), .alert(.resource(alert.id))] as [Route?] {
-            show(route)
-            sizes[route] = Self.measure(panel())
+        barWidths = (0...20).map { step in
+            var pose = Self.fullBar
+            pose.lock = Double(step) / 20
+            return Self.measure(PromoBar(pose: pose, notch: notch)).size.width
         }
-        show(nil)
+        let explains: [PromoExplain] = [.none, .thinking(1), .thinking(2), .thinking(3), .answer]
+        let all: [PromoShown] = [.screen(nil), .screen(.tips), .screen(.project(preview.mainProject.id)), .alert(.resource, .none), .alert(.process, .none)]
+            + explains.map { .alert(.network, $0) }
+        for shown in all {
+            show(shown)
+            (sizes[shown], faces[shown]) = Self.measure(panel())
+        }
+        show(.screen(nil))
     }
 
-    /// Ширина свёрнутой полоски — под самые широкие цифры, чтобы она не дёргалась.
-    private var barSizes: [Bool: CGSize] = [:]
-
-    private static func fullBar(guard: String?) -> PromoPose {
+    /// Полоска с самыми широкими цифрами и замком — чтобы она не дёргалась.
+    private static var fullBar: PromoPose {
         var pose = PromoPose()
         pose.money = 888_800
         pose.cpu = 88
         pose.temperature = 88
-        pose.guardWing = `guard`
+        pose.guardWing = "ssh 8:88"
         pose.signal = .tipsReady
         return pose
     }
 
-    /// Тревога про Arc активна только пока показывается её алерт: иначе она
-    /// заняла бы место фразы на главной.
-    private func setAlertActive(_ active: Bool) {
-        let resources = preview.resources
-        guard (resources.activeAlert != nil) != active else { return }
-        resources.preview(ResourceState(
-            system: resources.system, apps: resources.apps, history: resources.history,
-            alerts: active ? [alert] : [], normsCount: 0
-        ))
+    /// Открыть нужный вид в модели — до того, как кадр начнут рисовать:
+    /// менять состояние посреди отрисовки SwiftUI не любит.
+    func show(_ shown: PromoShown) {
+        guard shown != current else { return }
+        current = shown
+        preview.showCalm()
+        for key in ["resource:1", "guard:900", "guard:920"] { preview.review.explain.reset(key) }
+        switch shown {
+        case .screen(let route):
+            // Экран советов, нарисовавшись, отмечает их прочитанными (`onAppear`),
+            // а на главной они должны быть «готовы» — с бейджем.
+            if route != .tips { preview.settings.tipsSeenAt = nil }
+            open(route)
+        case .alert(let alert, let explain):
+            let route: PanelAlert
+            let key: String
+            switch alert {
+            case .resource:
+                let resources = preview.resources
+                resources.preview(ResourceState(
+                    system: resources.system, apps: resources.apps, history: resources.history,
+                    alerts: [arcAlert()], normsCount: 0
+                ))
+                (route, key) = (.resource(1), "resource:1")
+            case .process:
+                preview.showGuardAlert()
+                (route, key) = (.guardEvent(preview.guardEvent(900)), "guard:900")
+            case .network:
+                preview.showNetworkAlarm()
+                (route, key) = (.guardEvent(preview.guardEvent(920)), "guard:920")
+            }
+            switch explain {
+            case .none: break
+            case .thinking(let step): preview.review.explain.preview(key, .thinking(step: step))
+            case .answer: preview.review.explain.preview(key, .answer(alert == .resource ? preview.explainedResource : preview.explainedNetwork))
+            }
+            open(.alert(route))
+        }
     }
 
-    /// Открыть нужный экран в модели — до того, как кадр начнут рисовать:
-    /// менять состояние посреди отрисовки SwiftUI не любит.
-    func show(_ route: Route?) {
-        // Экран советов, нарисовавшись, отмечает их прочитанными (`onAppear`),
-        // а на главной они должны быть «готовы» — с бейджем.
-        if route != .tips { preview.settings.tipsSeenAt = nil }
-        setAlertActive(route == .alert(.resource(alert.id)))
+    private func open(_ route: Route?) {
         let model = preview.model
-        guard model.route != route || !model.isExpanded else { return }
         model.collapse(animated: false)
         model.expand(animated: false)
         if let route { model.push(route) }
     }
 
-    /// Содержимое раскрытой панели — как его кладёт `NotchRootView`. Экран
+    /// Тревога про Arc. «Держится 3 мин» считается от сейчас, поэтому собирается
+    /// в момент показа: рендер идёт минутами, и цифра бы поползла.
+    private func arcAlert() -> ResourceAlert {
+        let gib = 1_073_741_824.0
+        let now = Date()
+        return ResourceAlert(
+            id: 1, kind: .memory, app: AppIdentity(key: "company.thebrowser.Browser", name: "Arc"),
+            value: 4.1 * gib, usual: 1.37 * gib, startedAt: now.addingTimeInterval(-180), createdAt: now,
+            title: ResourcePhrase.memory(app: "Arc", bytes: 4.1 * gib, usual: 1.37 * gib, totalBytes: 48 * gib), detail: nil,
+            status: .active, statusChangedAt: nil
+        )
+    }
+
+    /// Содержимое раскрытой панели — как его кладёт `NotchRootView`. Вид
     /// в модели должен быть уже открыт (`show`).
     func panel() -> some View {
         ExpandedView(
@@ -116,27 +178,65 @@ final class PromoWorld {
         .frame(width: preview.model.panelWidth)
     }
 
-    func size(of route: Route?) -> CGSize {
-        sizes[route] ?? sizes[nil] ?? CGSize(width: DS.Panel.home, height: 300)
+    /// Свечение раскрытой панели — по правилам приложения (`PanelGlow.of`), растёт с раскрытием.
+    func glow(_ progress: Double) -> PanelGlow {
+        let model = preview.model
+        let look = FaceDirector.look(
+            model: model, store: preview.store, review: preview.review, tracker: preview.tracker,
+            resources: preview.resources, protection: preview.protection
+        )
+        var glow = PanelGlow.of(model.route, look: look, store: preview.store, isOpen: true)
+        glow.alpha *= Ease.clamp01(progress)
+        return glow
     }
 
-    /// Ширина свёрнутой полоски: лицо, итог месяца, система и бейдж.
-    func barWidth(guard: Bool) -> CGFloat { barSizes[`guard`]?.width ?? DS.Size.collapsedWidth }
+    func size(of shown: PromoShown) -> CGSize {
+        sizes[shown] ?? sizes[.screen(nil)] ?? CGSize(width: DS.Panel.home, height: 300)
+    }
+
+    func face(of shown: PromoShown) -> FaceSpec? { faces[shown] }
+
+    /// Ширина свёрнутой полоски: лицо, замок (насколько выдвинут), итог месяца, система и бейдж.
+    func barWidth(lock: Double) -> CGFloat {
+        guard barWidths.count == 21 else { return DS.Size.collapsedWidth }
+        let x = Ease.clamp01(lock) * 20
+        let step = min(Int(x), 19)
+        return lerp(barWidths[step], barWidths[step + 1], x - Double(step))
+    }
 
     /// Лицо в свёрнутой полоске — как в `CollapsedBar`: 34 pt слева.
     var barFaceCenter: CGPoint { CGPoint(x: 10 + DS.Size.collapsedHeight / 2, y: (notch.height + 2) / 2) }
 
-    private static func measure(_ view: some View) -> CGSize {
-        let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark).environment(\.unrollsScrolling, true))
+    /// Размер вида и лицо, которое он просит под своё место.
+    private static func measure(_ view: some View) -> (size: CGSize, face: FaceSpec?) {
+        let probe = FaceProbe()
+        let content = view
+            .overlayPreferenceValue(FaceSlotKey.self) { slot in
+                let _ = probe.keep(slot?.spec)
+                Color.clear
+            }
+            .environment(\.colorScheme, .dark)
+            .environment(\.unrollsScrolling, true)
+        let renderer = ImageRenderer(content: content)
         renderer.scale = 1
-        guard let image = renderer.cgImage else { return .zero }
-        return CGSize(width: image.width, height: image.height)
+        guard let image = renderer.cgImage else { return (.zero, nil) }
+        return (CGSize(width: image.width, height: image.height), probe.spec)
+    }
+}
+
+/// Запоминает лицо, которое попросил экран, пока его меряют.
+@MainActor
+private final class FaceProbe {
+    private(set) var spec: FaceSpec?
+
+    func keep(_ spec: FaceSpec?) {
+        self.spec = spec
     }
 }
 
 /// Что в кадре в момент `t`.
 struct PromoPose {
-    /// Подбородок вырос из голой чёлки, 0…1.
+    /// Голая чёлка выросла в полоску 300 pt с лицом слева (цифр ещё нет), 0…1.
     var chin = 0.0
     /// Крылья раздвинулись, 0…1.
     var wings = 0.0
@@ -145,20 +245,26 @@ struct PromoPose {
     /// Панель опустилась (пружина, может чуть перелететь 1).
     var expand = 0.0
     var chartReveal = 1.0
-    /// Записка о тревоге под чёлкой.
+    /// Алерт под чёлкой, 0…1 (пружина).
     var announce = 0.0
-    var money: Int64 = -102_700
+    /// Какой алерт и что с «Что это?».
+    var alert = PromoAlert.resource
+    var explain = PromoExplain.none
+    /// Прошлый вид алерта и насколько от него ушли (0…1, пружина): лицо и высота перетекают.
+    var previous: PromoShown?
+    var morph = 1.0
+    var money: Int64 = 292_300
     var cpu = 16.0
     var temperature = 54.0
     /// Открытый через «Защиту» ключ в крыле («ssh 4:12»); nil — замка нет.
     var guardWing: String?
-    /// Записка — тревога «Защиты» (красный щит), а не о ресурсах.
-    var alarm = false
+    /// Насколько замок выдвинулся в крыло, 0…1.
+    var lock = 0.0
     /// Экран панели: nil — главная.
     var route: Route?
 
     /// Что показывать панели в этот момент: тревога раскрывается алертом.
-    var shownRoute: Route? { announce > 0.001 ? .alert(.resource(1)) : route }
+    var shown: PromoShown { announce > 0.001 ? .alert(alert, explain) : .screen(route) }
 
     var faceOpacity = 0.0
     var lids = 0.0
@@ -168,6 +274,8 @@ struct PromoPose {
 
     /// Кончик курсора в точках экрана; nil — курсора нет.
     var cursor: CGPoint?
+    /// Нажатие, 0…1: стрелка чуть сжимается.
+    var press = 0.0
 
     var zoom = 1.0
     var pan = 0.0
@@ -187,48 +295,62 @@ struct PromoCaption {
 }
 
 enum PromoTimeline {
-    static let duration = 28.0
+    static let duration = 41.0
 
     static let captions = [
         PromoCaption(start: 0.5, end: 2.4, title: "Your MacBook notch.", subtitle: "It just sits there."),
-        PromoCaption(start: 3.1, end: 5.3, title: "Meet Radarchik.", subtitle: "A tiny mascot that lives in the notch."),
-        PromoCaption(start: 5.8, end: 9.5, title: "Your month at a glance.", subtitle: "Net of all your projects — red early in the month, green as income lands."),
+        PromoCaption(start: 3.1, end: 5.3, title: "Meet Radarchik.", subtitle: "A tiny face that lives in the notch."),
+        PromoCaption(start: 5.8, end: 9.4, title: "Your month and your Mac.", subtitle: "The net of all your projects on the left, CPU and temperature on the right."),
         PromoCaption(start: 11.1, end: 14.2, title: "Hover for the full picture.", subtitle: "The month’s net, a line from Radarchik, every project one click away.", placement: .left),
         PromoCaption(start: 15.5, end: 19.0, title: "It watches your Mac.", subtitle: "And speaks up when an app eats more than usual."),
-        PromoCaption(start: 20.9, end: 23.5, title: "Daily tips from Claude.", subtitle: "It reviews your routine and suggests what to automate.", placement: .left),
+        PromoCaption(start: 19.9, end: 23.3, title: "It guards your keys.", subtitle: "SSH, AWS and project keys stay locked. Touch ID opens them, a timer locks them again."),
+        PromoCaption(start: 23.9, end: 27.2, title: "It sees where scripts go.", subtitle: "npm scripts and Claude Code commands reaching new addresses — with who launched them."),
+        PromoCaption(start: 27.6, end: 31.7, title: "Not sure what it is? Ask Claude.", subtitle: "It reads the path, signature and launch chain, and says what to do."),
+        PromoCaption(start: 33.9, end: 36.6, title: "Daily tips from Claude.", subtitle: "It reviews your routine and suggests what to automate.", placement: .left),
     ]
+
+    /// Звуки приложения (`SoundPlayer`) в те секунды, когда выезжает алерт: у ресурсов —
+    /// предупреждение, у опасного от «Защиты» — сигнал (`PanelAlert.sound`).
+    static let sounds: [(time: Double, kind: SoundKind)] = [(15.8, .warning), (23.6, .alarm)]
 
     static let repository = "github.com/kuzmenkonikolay/radarchik"
 
     /// Центр выреза по горизонтали на экране мака.
     private static var notchX: CGFloat { PromoWorld.screen.width / 2 }
 
+    /// Где кнопки алерта сети, от центра выреза и от верха экрана, в точках: «Что это?»
+    /// до вопроса и «Убить» после ответа (ответ сдвигает кнопки вниз).
+    private static let askButton = CGPoint(x: 150, y: 244)
+    private static let killButton = CGPoint(x: -88, y: 378)
+
     static func pose(at t: Double, format: PromoFormat) -> PromoPose {
         var pose = PromoPose()
 
-        // 1–2. Голая чёлка просыпается: растёт подбородок, открываются глаза, оглядывается.
+        // 1–2. Голая чёлка просыпается: вырастает в полоску, открываются глаза, оглядывается.
         pose.chin = Ease.spring(t - 2.4, response: 0.5, damping: 1)
         pose.faceOpacity = Ease.smooth(Ease.progress(t, 2.7, 3.1))
         pose.lids = 1 - Ease.out(Ease.progress(t, 2.8, 3.3))
-        pose.lids = max(pose.lids, blink(t, at: [5.0, 9.0, 16.9, 25.6]))
+        pose.lids = max(pose.lids, blink(t, at: [5.0, 9.0, 16.9, 21.7, 34.9, 39.6]))
         let glance = Keyframes<CGPoint>(keys: [
             (3.5, .zero), (3.9, CGPoint(x: -1, y: 0.35)), (4.3, CGPoint(x: -1, y: 0.35)),
             (4.7, CGPoint(x: 1, y: 0.35)), (5.1, CGPoint(x: 1, y: 0.35)), (5.5, .zero),
         ], mix: lerp)
         pose.gaze = glance.value(at: t)
 
-        // 3. Крылья: итог месяца бежит из минуса в плюс, на каждый доход — глаза-монетки.
+        // 3. Крылья: слева итог месяца, справа процессор и температура; глаза косятся на оба.
         pose.wings = Ease.spring(t - 5.4, response: 0.45, damping: 1)
-        let money = Keyframes<Double>(keys: [(6.6, -102_700), (7.1, 17_300), (7.9, 17_300), (8.4, 292_300)], mix: lerp)
-        pose.money = Int64(money.value(at: t))
-        if (6.5..<7.6).contains(t) || (7.8..<8.9).contains(t) { pose.state = .catchCoin }
+        if (6.2..<8.8).contains(t) {
+            pose.gaze = Keyframes<CGPoint>(keys: [
+                (6.2, .zero), (6.5, CGPoint(x: -1, y: 0.2)), (7.2, CGPoint(x: -1, y: 0.2)),
+                (7.6, CGPoint(x: 1, y: 0.2)), (8.4, CGPoint(x: 1, y: 0.2)), (8.8, .zero),
+            ], mix: lerp).value(at: t)
+        }
 
-        // 4. Курсор наводит — чёлка расходится вширь, опускается в сводку, график растёт.
+        // 4. Курсор наводит — чёлка расходится вширь и опускается в главную.
         (pose.widen, pose.expand) = panelSteps(t, open: 10.55, close: 14.3)
-        pose.chartReveal = Ease.progress(t, 11.05, 12.25)
         if (10.55..<14.3).contains(t) { pose.state = .happy }
 
-        // 5. Тревога: процессор и температура лезут вверх, выезжает записка.
+        // 5. Мак: процессор и температура лезут вверх, выезжает алерт про Arc.
         pose.cpu = lerp(16, 74, Ease.inOut(Ease.progress(t, 14.9, 15.7)))
         pose.temperature = lerp(54, 71, Ease.inOut(Ease.progress(t, 15.0, 16.0)))
         if t > 19.2 {
@@ -241,30 +363,69 @@ enum PromoTimeline {
             pose.gaze = CGPoint(x: 0, y: 0.6)
         }
 
-        // 6. Советы готовы — глаза белеют; курсор открывает «Советы дня».
-        if t >= 19.4 && t < 23.9 { pose.signal = .tipsReady }
-        if t >= 20.45 {
-            (pose.widen, pose.expand) = panelSteps(t, open: 20.45, close: 23.6)
-            pose.route = .tips
-            if t < 23.6 { pose.state = .tipWave }
+        // 6. «Защита»: ssh открыт по Touch ID — в крыле выдвигается замок с отсчётом.
+        if t >= 19.6 {
+            let left = 252 - Int(t - 19.6)
+            pose.guardWing = String(format: "ssh %d:%02d", left / 60, left % 60)
+            pose.lock = Ease.spring(t - 19.6, response: 0.45, damping: 1)
+        }
+        if (20.0..<22.8).contains(t) {
+            pose.gaze = Keyframes<CGPoint>(keys: [
+                (20.0, .zero), (20.3, CGPoint(x: -1, y: 0.25)), (22.4, CGPoint(x: -1, y: 0.25)), (22.8, .zero),
+            ], mix: lerp).value(at: t)
         }
 
-        // 7. Заставка: камера отъезжает, Радарчик доволен.
-        if t >= 23.9 { pose.state = .happy }
-        pose.outro = Ease.smooth(Ease.progress(t, 24.5, 25.3))
+        // 7. Скрипт из npm пошёл на голый адрес: глаза краснеют, выезжает алерт сети.
+        // Курсор жмёт «Что это?» — Claude думает три шага и отвечает; потом «Убить».
+        if t >= 23.0 {
+            pose.alert = .network
+            pose.announce = Ease.there(andBack: t, start: 23.6, end: 31.65, response: 0.38, damping: 1, backDamping: 1)
+            let steps: [(time: Double, from: PromoExplain, to: PromoExplain)] = [
+                (27.25, .none, .thinking(1)), (27.75, .thinking(1), .thinking(2)),
+                (29.2, .thinking(2), .thinking(3)), (29.6, .thinking(3), .answer),
+            ]
+            if let step = steps.last(where: { t >= $0.time }) {
+                pose.explain = step.to
+                pose.previous = .alert(.network, step.from)
+                pose.morph = Ease.spring(t - step.time, response: 0.38, damping: 0.78)
+            }
+        }
+        if (23.4..<31.7).contains(t) {
+            pose.state = .alarm
+            pose.gaze = CGPoint(x: 0, y: 0.6)
+        }
+
+        // 8. Советы готовы — глаза белеют; курсор открывает «Советы дня».
+        if t >= 32.4 && t < 36.9 { pose.signal = .tipsReady }
+        if t >= 33.4 {
+            (pose.widen, pose.expand) = panelSteps(t, open: 33.4, close: 36.55)
+            pose.route = .tips
+            if t < 36.55 { pose.state = .tipWave }
+        }
+
+        // 9. Заставка: камера отъезжает, Радарчик доволен.
+        if t >= 36.9 { pose.state = .happy }
+        pose.outro = Ease.smooth(Ease.progress(t, 37.5, 38.3))
 
         // За курсором глаза следят только из свёрнутой чёлки; в раскрытой панели
         // смотрят прямо, как в приложении (2026-10-20).
         pose.cursor = cursor(at: t)
-        if let cursor = pose.cursor, t > 9.9, pose.expand <= 0.001 { pose.gaze = gaze(towards: cursor, pose: pose) }
+        pose.press = blink(t, at: [27.05, 31.45])
+        if let cursor = pose.cursor, t > 9.9, pose.expand <= 0.001, pose.announce <= 0.001 {
+            pose.gaze = gaze(towards: cursor, pose: pose)
+        }
 
-        // Камера: общий план → к чёлке → отъезд под панель → снова к чёлке → общий план.
+        // Камера: общий план → к чёлке → отъезд под панель → к алертам и замку → общий план.
+        let (close, panel, alert, pan) = (format.closeZoom, format.panelZoom, format.alertZoom, format.panelPan)
         let camera = Keyframes<(Double, Double)>(keys: [
-            (0, (1.0, 0)), (2.2, (1.04, 0)), (4.0, (format.closeZoom, 0)), (9.7, (format.closeZoom + 0.08, 0)),
-            (10.7, (format.panelZoom, format.panelPan)), (14.2, (format.panelZoom, format.panelPan)),
-            (15.2, (format.closeZoom, 0)), (19.8, (format.closeZoom, 0)),
-            (20.7, (format.panelZoom, format.panelPan)), (23.5, (format.panelZoom, format.panelPan)),
-            (25.0, (1.0, 0)),
+            (0, (1.0, 0)), (2.2, (1.04, 0)), (3.6, (format.wakeZoom, 0)), (5.0, (format.wakeZoom, 0)), (6.0, (close, 0)), (9.7, (close + 0.08, 0)),
+            (10.7, (panel, pan)), (14.2, (panel, pan)),
+            (15.3, (alert, 0)), (19.2, (alert, 0)),
+            (20.0, (close, 0)), (23.0, (close + 0.06, 0)),
+            (23.9, (alert, 0)), (31.6, (alert, 0)),
+            (32.5, (close, 0)), (32.75, (close, 0)),
+            (33.65, (panel, pan)), (36.4, (panel, pan)),
+            (38.0, (1.0, 0)),
         ], mix: { a, b, x in (lerp(a.0, b.0, x), lerp(a.1, b.1, x)) })
         (pose.zoom, pose.pan) = camera.value(at: t)
         return pose
@@ -291,7 +452,7 @@ enum PromoTimeline {
         }.max() ?? 0
     }
 
-    /// Курсор: появляется справа, наводит на чёлку, гуляет по панели и уходит.
+    /// Курсор: наводит на чёлку и гуляет по главной; жмёт кнопки алерта сети; открывает советы.
     private static func cursor(at t: Double) -> CGPoint? {
         let x = notchX
         if (9.4..<14.8).contains(t) {
@@ -301,11 +462,20 @@ enum PromoTimeline {
                 (13.8, CGPoint(x: x + 60, y: 318)), (14.7, CGPoint(x: x + 560, y: 600)),
             ], mix: lerp).value(at: t)
         }
-        if (19.5..<23.9).contains(t) {
+        if (26.2..<32.4).contains(t) {
+            let ask = CGPoint(x: x + askButton.x, y: askButton.y)
+            let kill = CGPoint(x: x + killButton.x, y: killButton.y)
             return Keyframes<CGPoint>(keys: [
-                (19.5, CGPoint(x: x + 600, y: 380)), (20.4, CGPoint(x: x + 20, y: 22)),
-                (21.4, CGPoint(x: x + 50, y: 120)), (22.3, CGPoint(x: x + 140, y: 218)),
-                (23.0, CGPoint(x: x + 150, y: 222)), (23.85, CGPoint(x: x + 600, y: 620)),
+                // Пока Claude думает, курсор отходит за правый край алерта — не загораживает шаги.
+                (26.2, CGPoint(x: x + 560, y: 560)), (27.0, ask), (27.5, ask), (28.3, CGPoint(x: x + 380, y: 280)),
+                (30.4, CGPoint(x: x + 380, y: 280)), (31.3, kill), (31.65, kill), (32.4, CGPoint(x: x + 560, y: 640)),
+            ], mix: lerp).value(at: t)
+        }
+        if (32.45..<36.9).contains(t) {
+            return Keyframes<CGPoint>(keys: [
+                (32.45, CGPoint(x: x + 600, y: 380)), (33.35, CGPoint(x: x + 20, y: 22)),
+                (34.35, CGPoint(x: x + 50, y: 120)), (35.25, CGPoint(x: x + 140, y: 218)),
+                (35.95, CGPoint(x: x + 150, y: 222)), (36.8, CGPoint(x: x + 600, y: 620)),
             ], mix: lerp).value(at: t)
         }
         return nil
@@ -331,6 +501,9 @@ struct PromoFrame: View {
         let pose = PromoTimeline.pose(at: t, format: format)
         let size = format.size
         ZStack(alignment: .top) {
+            // Обои стоят на месте и закрывают весь кадр: камера двигает только экран.
+            PromoWallpaper(size: size)
+
             PromoScreen(pose: pose, world: world)
                 .frame(width: PromoWorld.screen.width, height: PromoWorld.screen.height, alignment: .top)
                 .scaleEffect(format.baseScale * pose.zoom, anchor: .top)
@@ -350,23 +523,22 @@ struct PromoFrame: View {
     }
 }
 
-/// Экран мака: обои, строка меню, чёлка и курсор.
+/// Верх экрана мака: чёлка и курсор. Строки меню нет — в ролике только то, что
+/// рисует сам Радарчик (2026-10-20).
 private struct PromoScreen: View {
     let pose: PromoPose
     let world: PromoWorld
 
     var body: some View {
         ZStack(alignment: .top) {
-            PromoWallpaper()
-            PromoMenuBar(height: world.notch.height)
             PromoNotchView(pose: pose, world: world)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .topLeading) {
             if let cursor = pose.cursor {
-                PromoCursor().offset(x: cursor.x, y: cursor.y)
+                PromoCursor(press: pose.press).offset(x: cursor.x, y: cursor.y)
             }
         }
-        .clipped()
     }
 }
 
@@ -378,38 +550,42 @@ struct PromoNotchView: View {
 
     var body: some View {
         let notch = world.notch
-        let barHeight = notch.height + 2
-        let barWidth = lerp(notch.width + 2 * 10, world.barWidth(guard: pose.guardWing != nil), pose.wings)
+        // Голая чёлка → полоска без цифр → с цифрами (и замком). Ширины — без ушей фигуры (2 × 6).
+        let barHeight = lerp(notch.height, notch.height + 2, pose.chin)
+        let plainWidth = lerp(notch.width - 12, DS.Size.collapsedWidth, pose.chin)
+        let barWidth = lerp(plainWidth, world.barWidth(lock: pose.guardWing == nil ? 0 : pose.lock), pose.wings)
         let isPanel = pose.widen > 0.001 || pose.expand > 0.001 || pose.announce > 0.001
         let p = Ease.clamp01(isPanel ? max(pose.expand, pose.announce) : 0)
-        let full = world.size(of: pose.shownRoute)
+        let full = panelSize
         let width = lerp(barWidth, full.width, Ease.clamp01(max(pose.widen, p)))
         let height = lerp(barHeight, full.height, p)
         let top: CGFloat = lerp(CGFloat(6), CGFloat(10), p)
         let shape = PanelShape(topRadius: top, bottomRadius: lerp(DS.Radius.collapsed, DS.Radius.panel, p))
-        let spec = faceSpec
-        let glow = PanelGlow(color: spec.glow, alpha: 0.2 * p)
         ZStack(alignment: .top) {
             shape.fill(Color.black)
                 .shadow(color: .black.opacity(0.5 * p), radius: 70, y: 30)
-            PanelBackground(shape: shape, glow: glow)
+            PanelBackground(shape: shape, glow: isPanel ? world.glow(p) : .none)
             ZStack(alignment: .top) {
                 if isPanel {
                     world.panel()
                         .environment(\.chartReveal, pose.chartReveal)
                         .scaleEffect(lerp(0.96, 1, p), anchor: .top)
                         .opacity(Ease.smooth(Ease.progress(p, 0.3, 0.85)))
-                } else {
-                    PromoBar(pose: pose, notch: notch)
-                        .opacity(Ease.smooth(Ease.progress(pose.wings, 0.2, 0.9)))
                 }
+                // Цифры гаснут в первую четверть раскрытия и проявляются в последнюю четверть
+                // сворачивания: между полоской и панелью не остаётся пустой чёрной фигуры.
+                PromoBar(pose: pose, notch: notch)
+                    .opacity(Ease.smooth(Ease.progress(pose.wings, 0.2, 0.9)) * (1 - Ease.smooth(Ease.progress(p, 0, 0.25))))
             }
             .padding(.horizontal, top)
             .overlayPreferenceValue(FaceSlotKey.self) { slot in
                 GeometryReader { proxy in
-                    let target = slot.map { proxy[$0.anchor] } ?? barRect(top: top)
-                    let rect = isPanel ? lerpRect(barRect(top: top), target, p) : barRect(top: top)
-                    FaceCanvas(geometry: FaceGeometry(spec), blink: pose.lids, look: pose.gaze)
+                    // Содержимое шире фигуры (полоска с цифрами, пока крылья не раскрылись) стоит
+                    // по центру: лицу полоски нужен левый край фигуры, а не содержимого.
+                    let shift = (proxy.size.width - (width + 2 * top)) / 2
+                    let bar = barRect(top: top).offsetBy(dx: shift, dy: 0)
+                    let rect = isPanel ? lerpRect(bar, slot.map { proxy[$0.anchor] } ?? bar, p) : bar
+                    FaceCanvas(geometry: faceGeometry(panel: isPanel ? slot?.spec : nil, progress: p), blink: pose.lids, look: pose.gaze)
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
                         .opacity(pose.faceOpacity)
@@ -418,6 +594,13 @@ struct PromoNotchView: View {
         }
         .frame(width: width + 2 * top, height: height, alignment: .top)
         .clipShape(shape)
+    }
+
+    /// Размер панели: от прошлого вида алерта к нынешнему (ответ Claude её вытягивает).
+    private var panelSize: CGSize {
+        let size = world.size(of: pose.shown)
+        guard let previous = pose.previous else { return size }
+        return lerp(world.size(of: previous), size, pose.morph)
     }
 
     /// Лицо 34 слева в полоске.
@@ -431,8 +614,20 @@ struct PromoNotchView: View {
         CGRect(x: lerp(a.minX, b.minX, t), y: lerp(a.minY, b.minY, t), width: lerp(a.width, b.width, t), height: lerp(a.height, b.height, t))
     }
 
-    /// Лицо по позе: эмоция из состояния, цвет из сигнала; веки — моргание ролика.
-    private var faceSpec: FaceSpec {
+    /// Лицо: в полоске — по позе ролика, в панели — то, что просит экран (`faceSlot`),
+    /// как в приложении. Из полоски в панель и из прошлого вида алерта — перетекает.
+    private func faceGeometry(panel spec: FaceSpec?, progress: Double) -> FaceGeometry {
+        let bar = FaceGeometry(barFace)
+        guard let spec else { return bar }
+        var panel = FaceGeometry(spec)
+        if let previous = pose.previous.flatMap(world.face(of:)) {
+            panel = .mix(FaceGeometry(previous), panel, pose.morph)
+        }
+        return .mix(bar, panel, progress)
+    }
+
+    /// Лицо в полоске: эмоция из состояния, цвет из сигнала.
+    private var barFace: FaceSpec {
         let tone: Color = switch pose.state {
         case .alarm: DS.Tone.alarm
         case .sleep: DS.Tone.dim
@@ -444,7 +639,16 @@ struct PromoNotchView: View {
     }
 }
 
-/// Свёрнутая полоска ролика: место под лицо, итог месяца, процессор, температура, бейдж.
+private extension FaceGeometry {
+    /// Лицо между двумя: все числа модели — по прямой.
+    static func mix(_ a: FaceGeometry, _ b: FaceGeometry, _ t: Double) -> FaceGeometry {
+        let t = Ease.clamp01(t)
+        return FaceGeometry(vector: zip(a.vector, b.vector).map { lerp($0, $1, t) })
+    }
+}
+
+/// Свёрнутая полоска ролика: место под лицо, замок открытого ключа, итог месяца,
+/// процессор, температура, бейдж.
 struct PromoBar: View {
     let pose: PromoPose
     let notch: CGSize
@@ -454,10 +658,17 @@ struct PromoBar: View {
         NotchBarLayout(gap: notch.width + 24, minWidth: DS.Size.collapsedWidth - 20) {
             HStack(spacing: 8) {
                 Color.clear.frame(width: DS.Size.collapsedHeight, height: DS.Size.collapsedHeight * 2 / 3)
-                if let wing = pose.guardWing {
-                    WingItemView(item: WingItem(id: "guard", icon: "lock.open.fill", text: wing, color: DS.Tone.tips, iconColor: DS.Tone.tips, widest: "ssh 8:88"))
+                HStack(spacing: 0) {
+                    if let wing = pose.guardWing {
+                        Reveal(fraction: pose.lock) {
+                            WingItemView(item: WingItem(id: "guard", icon: "lock.open.fill", text: wing, color: DS.Tone.tips, iconColor: DS.Tone.tips, widest: "ssh 8:88"))
+                                .padding(.trailing, 8)
+                        }
+                        .clipped()
+                        .opacity(pose.lock)
+                    }
+                    WingItemView(item: WingItem(id: "month", icon: nil, text: MoneyFormat.compact(pose.money, .usd, signed: true), color: DS.Money.text(for: pose.money), widest: "+$8.8k"))
                 }
-                WingItemView(item: WingItem(id: "month", icon: nil, text: MoneyFormat.compact(pose.money, .usd, signed: true), color: DS.Money.text(for: pose.money), widest: "+$8.8k"))
             }
             HStack(spacing: 8) {
                 WingItemView(item: WingItem(id: "cpu", icon: "cpu", text: ResourceFormat.percent(pose.cpu), widest: "88%"))
@@ -471,47 +682,43 @@ struct PromoBar: View {
     }
 }
 
+/// Выдвигает содержимое слева направо: ширина — доля настоящей, содержимое прижато вправо.
+private struct Reveal: Layout {
+    var fraction: Double
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews.first?.sizeThatFits(.unspecified) ?? .zero
+        return CGSize(width: size.width * Ease.clamp01(fraction), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let subview = subviews.first else { return }
+        let size = subview.sizeThatFits(.unspecified)
+        subview.place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: ProposedViewSize(size))
+    }
+}
+
 /// Свои обои: тёмные, с мягкими пятнами цвета — экран не отвлекает от чёлки.
+/// Пятна рассчитаны на экран мака шириной 1512 pt и растянуты на весь кадр.
 private struct PromoWallpaper: View {
+    let size: CGSize
+
     var body: some View {
+        let k = max(size.width, size.height) / PromoWorld.screen.width
         ZStack {
             Color(hex: "#0B0D1A")
-            RadialGradient(colors: [Color(hex: "#3A2B8C").opacity(0.9), .clear], center: UnitPoint(x: 0.16, y: 0.95), startRadius: 0, endRadius: 900)
-            RadialGradient(colors: [Color(hex: "#0F6B7A").opacity(0.75), .clear], center: UnitPoint(x: 0.92, y: 0.78), startRadius: 0, endRadius: 820)
-            RadialGradient(colors: [Color(hex: "#1F3C9E").opacity(0.5), .clear], center: UnitPoint(x: 0.55, y: 0.18), startRadius: 0, endRadius: 700)
+            RadialGradient(colors: [Color(hex: "#3A2B8C").opacity(0.9), .clear], center: UnitPoint(x: 0.16, y: 0.95), startRadius: 0, endRadius: 900 * k)
+            RadialGradient(colors: [Color(hex: "#0F6B7A").opacity(0.75), .clear], center: UnitPoint(x: 0.92, y: 0.78), startRadius: 0, endRadius: 820 * k)
+            RadialGradient(colors: [Color(hex: "#1F3C9E").opacity(0.5), .clear], center: UnitPoint(x: 0.55, y: 0.18), startRadius: 0, endRadius: 700 * k)
         }
+        .frame(width: size.width, height: size.height)
     }
 }
 
-/// Строка меню: полупрозрачная, как на тёмных обоях; посередине её закрывает чёлка.
-private struct PromoMenuBar: View {
-    let height: CGFloat
-
-    var body: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 20) {
-                Text("Finder").fontWeight(.bold)
-                ForEach(["File", "Edit", "View", "Go", "Window", "Help"], id: \.self) { Text($0) }
-            }
-            Spacer()
-            HStack(spacing: 18) {
-                Image(systemName: "battery.100percent")
-                Image(systemName: "wifi")
-                Image(systemName: "magnifyingglass")
-                Image(systemName: "switch.2")
-                Text("Mon Oct 19  9:41")
-            }
-        }
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(Color.white.opacity(0.92))
-        .padding(.horizontal, 18)
-        .frame(height: height)
-        .background(Color.black.opacity(0.24))
-    }
-}
-
-/// Стрелка курсора macOS: чёрная с белой обводкой и мягкой тенью.
+/// Стрелка курсора macOS: чёрная с белой обводкой и мягкой тенью; на нажатии сжимается.
 private struct PromoCursor: View {
+    var press = 0.0
+
     var body: some View {
         let arrow = Path { path in
             path.move(to: .zero)
@@ -528,6 +735,7 @@ private struct PromoCursor: View {
             arrow.fill(Color.black)
         }
         .frame(width: 14, height: 21, alignment: .topLeading)
+        .scaleEffect(1 - 0.18 * press, anchor: .topLeading)
         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
     }
 }

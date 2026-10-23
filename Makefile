@@ -74,11 +74,12 @@ docs:
 	.build/debug/$(APP_NAME) --render-social docs/social-preview.png
 	.build/debug/$(APP_NAME) --render-gif docs/notch-loop.gif
 
+# -AppleLocale en_US — время в алерте «Защиты» по-английски («3:12 PM»), как весь ролик.
 promo:
 	swift build --product $(APP_NAME)
 	mkdir -p launch
-	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-wide.mp4 --format wide
-	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-square.mp4 --format square
+	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-wide.mp4 --format wide -AppleLocale en_US
+	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-square.mp4 --format square -AppleLocale en_US
 
 clean:
 	rm -rf .build "$(BUILD_DIR)"

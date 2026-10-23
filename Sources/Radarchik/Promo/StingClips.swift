@@ -36,7 +36,7 @@ enum StingClips {
             for frame in 0..<count {
                 try autoreleasepool {
                     let pose = clip.pose(Double(frame) / fps)
-                    world.show(pose.shownRoute)
+                    world.show(pose.shown)
                     let renderer = ImageRenderer(content: StingFrame(pose: pose, world: world, height: clip.height))
                     renderer.scale = 2
                     guard let image = renderer.cgImage,
@@ -123,7 +123,8 @@ enum StingClips {
                 var pose = collapsed()
                 let remaining = 252 - Int(t)
                 pose.guardWing = String(format: "ssh %d:%02d", remaining / 60, remaining % 60)
-                pose.alarm = true
+                pose.lock = 1
+                pose.alert = .process
                 pose.announce = Ease.spring(t - 1.2, response: 0.38, damping: 1)
                 if t >= 1.1 { pose.state = .alarm; pose.gaze = CGPoint(x: 0, y: 0.6) }
                 pose.lids = PromoTimeline.blink(t, at: [0.6])
