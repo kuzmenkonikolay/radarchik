@@ -45,7 +45,8 @@ final class ReviewService {
 
     func start() {
         reload()
-        hasAPIKey = KeychainStore.read(Self.keyAccount) != nil
+        // Только есть ли ключ: сам ключ читается, когда он нужен, — без пароля Связки на старте.
+        hasAPIKey = KeychainStore.exists(Self.keyAccount)
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.runIfDue()
