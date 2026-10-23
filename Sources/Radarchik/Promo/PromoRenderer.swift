@@ -9,15 +9,17 @@ import RadarchikCore
 /// Ролик в MP4 и кадры в PNG — тем же кодом, что приложение (2026-10-19).
 /// Ничего ставить не надо: кадры рисует ImageRenderer, кодирует AVFoundation.
 ///
-/// - `--render-promo <файл.mp4> [--format wide|square]` — ролик, 60 кадров в секунду,
-///   со звуками приложения на алертах;
+/// - `--render-promo <файл.mp4> [--format wide|square] [--voice <голос.wav>]` — ролик, 60 кадров
+///   в секунду, со звуками приложения на алертах и, если дали, закадровым голосом;
 /// - `--promo-frames <папка> [--format …] [--times 1,3.5,…]` — отдельные кадры для проверки;
 /// - `--render-gif <файл.gif>` — короткая петля для README: чёлка крупно, 12 кадров в секунду.
 @MainActor
 enum PromoRenderer {
     static let fps = 60
 
-    static func renderVideo(to url: URL, format: PromoFormat) throws {
+    /// `voice` — закадровый голос на всю длину ролика, уже расставленный по секундам
+    /// (44,1 кГц): подмешивается к звукам приложения как есть.
+    static func renderVideo(to url: URL, format: PromoFormat, voice: URL? = nil) throws {
         Language.setAppWide(.en)
         let world = try PromoWorld(withGuard: true)
         let size = format.size
@@ -55,7 +57,7 @@ enum PromoRenderer {
         ])
         audio.expectsMediaDataInRealTime = false
         writer.add(audio)
-        let sound = PromoSound.track(duration: PromoTimeline.duration)
+        let sound = try PromoSound.track(duration: PromoTimeline.duration, voice: voice)
         let soundFormat = try PromoSound.format()
         var soundWritten = 0
         /// Звук — сколько писатель сейчас возьмёт, но не дальше `limit`. Он чередует дорожки
@@ -183,13 +185,34 @@ enum PromoRenderer {
 }
 
 /// Звуковая дорожка ролика: те же звуки, что играет приложение (`SoundPlayer`),
-/// в секунды из `PromoTimeline.sounds`, между ними тишина. 16 бит моно.
+/// в секунды из `PromoTimeline.sounds`, и закадровый голос, если он есть. 16 бит моно.
 @MainActor
 enum PromoSound {
     static let rate = SoundPlayer.rate
 
-    static func track(duration: Double) -> [Int16] {
+    static func track(duration: Double, voice: URL? = nil) throws -> [Int16] {
         var mix = [Float](repeating: 0, count: Int(duration * rate))
+        if let voice {
+            // Голос уже расставлен по секундам ролика (2026-10-24: Seed Audio, голос Julian,
+            // фразы — launch/voice/lines.tsv): каналы сводим в один, громкость не трогаем.
+            let file = try AVAudioFile(forReading: voice)
+            let format = file.processingFormat
+            guard format.sampleRate == rate else {
+                throw PromoRenderer.Failure(description: "voice must be \(Int(rate)) Hz, got \(Int(format.sampleRate))")
+            }
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(file.length)) else {
+                throw PromoRenderer.Failure(description: "voice not read")
+            }
+            try file.read(into: buffer)
+            if let channels = buffer.floatChannelData {
+                let count = Int(format.channelCount)
+                for index in 0..<min(Int(buffer.frameLength), mix.count) {
+                    var sample: Float = 0
+                    for channel in 0..<count { sample += channels[channel][index] }
+                    mix[index] += sample / Float(count)
+                }
+            }
+        }
         for cue in PromoTimeline.sounds {
             let start = Int(cue.time * rate)
             // Приложение звучит тихо, из-за стола: в ролике громче, соотношение то же.

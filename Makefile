@@ -91,11 +91,13 @@ docs:
 	.build/debug/$(APP_NAME) --render-gif docs/notch-loop.gif
 
 # -AppleLocale en_US — время в алерте «Защиты» по-английски («3:12 PM»), как весь ролик.
+# Закадровый голос — launch/voice-en.wav, если он есть (в git не попадает, как и весь launch/).
+VOICE := $(wildcard launch/voice-en.wav)
 promo:
 	swift build --product $(APP_NAME)
 	mkdir -p launch
-	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-wide.mp4 --format wide -AppleLocale en_US
-	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-square.mp4 --format square -AppleLocale en_US
+	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-wide.mp4 --format wide -AppleLocale en_US $(if $(VOICE),--voice $(VOICE))
+	.build/debug/$(APP_NAME) --render-promo launch/radarchik-promo-square.mp4 --format square -AppleLocale en_US $(if $(VOICE),--voice $(VOICE))
 
 clean:
 	rm -rf .build "$(BUILD_DIR)"

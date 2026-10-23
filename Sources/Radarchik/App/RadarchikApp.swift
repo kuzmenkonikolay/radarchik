@@ -61,11 +61,12 @@ enum RadarchikApp {
                 try BrandRenderer.renderSocial(to: URL(fileURLWithPath: path))
             }
         }
-        // Ролик: `--render-promo <файл.mp4>`, кадры для проверки: `--promo-frames <папка> --times 1,3.5`,
+        // Ролик: `--render-promo <файл.mp4> [--voice <голос.wav>]`, кадры для проверки: `--promo-frames <папка> --times 1,3.5`,
         // петля для README: `--render-gif <файл.gif>`. Формат — `--format wide|square`.
         if let flag = CommandLine.arguments.firstIndex(of: "--render-promo") {
             let path = CommandLine.arguments.dropFirst(flag + 1).first ?? "radarchik.mp4"
-            finish { try PromoRenderer.renderVideo(to: URL(fileURLWithPath: path), format: requestedFormat) }
+            let voice = CommandLine.arguments.firstIndex(of: "--voice").flatMap { CommandLine.arguments.dropFirst($0 + 1).first }
+            finish { try PromoRenderer.renderVideo(to: URL(fileURLWithPath: path), format: requestedFormat, voice: voice.map(URL.init(fileURLWithPath:))) }
         }
         if let flag = CommandLine.arguments.firstIndex(of: "--promo-frames") {
             let path = CommandLine.arguments.dropFirst(flag + 1).first ?? "frames"
