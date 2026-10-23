@@ -1,0 +1,7 @@
+// libpcap из macOS — для root-части «Защиты» («Сетевой надзор», SPEC §3б).
+// Заголовок есть в SDK, библиотека — в системе; ничего ставить не нужно.
+module CPcap [system] {
+    header "shim.h"
+    link "pcap"
+    export *
+}

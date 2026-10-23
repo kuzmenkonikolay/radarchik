@@ -7,6 +7,22 @@ import RadarchikCore
 enum RadarchikApp {
     @MainActor
     static func main() {
+        // `--codescan post-merge|post-checkout|scan …` — проверка кода из git-хука (SPEC §3б).
+        // Раньше всего остального: окну и AppKit здесь делать нечего, git ждёт.
+        if let flag = CommandLine.arguments.firstIndex(of: "--codescan") {
+            exit(CodeScanCommand.run(Array(CommandLine.arguments.dropFirst(flag + 1))))
+        }
+        // `--guard-status` — «Защита» одним взглядом, как `guard status`.
+        if CommandLine.arguments.contains("--guard-status") {
+            exit(GuardStatusCommand.run())
+        }
+        // `--guard unlock ssh` / `lock` / `status` — как старый guard, но без sudo: Touch ID.
+        if let flag = CommandLine.arguments.firstIndex(of: "--guard") {
+            exit(GuardCommand.run(Array(CommandLine.arguments.dropFirst(flag + 1))))
+        }
+        // Отладка: кто пишет в закрытое соединение — стек в ~/Library/Logs/Radarchik/sigpipe.log,
+        // а Радарчик не падает (см. `SigpipeTrap`).
+        SigpipeTrap.install()
         let app = NSApplication.shared
         // `--render-mascots <папка>` — нарисовать лист чёлки и глаз (PNG и петля GIF) и выйти (без панели).
         if let flag = CommandLine.arguments.firstIndex(of: "--render-mascots") {
@@ -22,6 +38,16 @@ enum RadarchikApp {
         if let flag = CommandLine.arguments.firstIndex(of: "--render-docs") {
             let path = CommandLine.arguments.dropFirst(flag + 1).first ?? "docs"
             finish { try ScreensRenderer.renderDocs(to: URL(fileURLWithPath: path), language: requestedLanguage) }
+        }
+        // `--render-sting <папка>` — экраны для 12-секундного ролика: прозрачный фон, по-английски, с «Защитой».
+        if let flag = CommandLine.arguments.firstIndex(of: "--render-sting") {
+            let path = CommandLine.arguments.dropFirst(flag + 1).first ?? FileManager.default.temporaryDirectory.path
+            finish { try ScreensRenderer.renderSting(to: URL(fileURLWithPath: path)) }
+        }
+        // `--render-sting-clips <папка>` — живые клипы чёлки и панели для ролика-стинга: PNG, 59.94 к/с, прозрачные.
+        if let flag = CommandLine.arguments.firstIndex(of: "--render-sting-clips") {
+            let path = CommandLine.arguments.dropFirst(flag + 1).first ?? FileManager.default.temporaryDirectory.path
+            finish { try StingClips.render(to: URL(fileURLWithPath: path)) }
         }
         // `--render-icon <папка>` — AppIcon.iconset; `--render-social <файл.png>` — превью ссылки.
         if let flag = CommandLine.arguments.firstIndex(of: "--render-icon") {
@@ -105,6 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tracker: ActivityTracker?
     private var review: ReviewService?
     private var resources: ResourceMonitor?
+    private var protection: GuardMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Второй экземпляр (запустили ещё раз) — молча выходим, Радарчик уже в чёлке.
@@ -128,12 +155,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             review.start()
             // Ресурсы мака (этап 6): замеры и база — в фоновом акторе.
             let resources = ResourceMonitor(worker: try ResourceWorker(databasePath: databasePath), settings: settings, tracker: tracker)
-            let notch = NotchController(store: store, settings: settings, tracker: tracker, review: review, resources: resources)
+            // «Защита» (SPEC §3б): ключи, процессы, код после git pull, настройки Claude Code.
+            let protection = GuardMonitor(worker: try GuardWorker(databasePath: databasePath), settings: settings, tracker: tracker)
+            let notch = NotchController(store: store, settings: settings, tracker: tracker, review: review, resources: resources, protection: protection)
             resources.start()
+            protection.start()
             notch.start()
             self.tracker = tracker
             self.review = review
             self.resources = resources
+            self.protection = protection
             self.notch = notch
         } catch {
             let alert = NSAlert()
@@ -142,5 +173,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.runModal()
             NSApp.terminate(nil)
         }
+    }
+
+    /// Закрываемся: терминал должен снова ходить в ssh-agent напрямую, а не в сокет,
+    /// который никто не слушает. Если Радарчик убили (`pkill`), сюда не попадём — тогда
+    /// хук сам увидит по метке, что процесса больше нет.
+    func applicationWillTerminate(_ notification: Notification) {
+        protection?.stopAgentRelay()
     }
 }

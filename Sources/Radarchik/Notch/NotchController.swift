@@ -5,42 +5,48 @@ import RadarchikCore
 /// Всё про окно чёлки: где оно стоит, когда раскрываться и сворачиваться,
 /// кому достаются клики, куда смотрит Радарчик и когда он спит.
 ///
-/// Окно панели большое и прозрачное (как самая высокая раскрытая чёлка),
-/// а видимая чёрная фигура внутри меняет размер. Поэтому клики пропускаются
-/// везде, кроме фигуры: `ignoresMouseEvents` переключается на каждое движение
-/// мыши. Так свёрнутая чёлка не мешает строке меню и вкладкам Chrome под ней.
+/// Окно панели большое и прозрачное (как самая широкая раскрытая панель с её
+/// тенью), а видимая чёрная фигура внутри меняет размер. Поэтому клики
+/// пропускаются везде, кроме фигуры: `ignoresMouseEvents` переключается на каждое
+/// движение мыши. Так свёрнутая чёлка не мешает строке меню и вкладкам Chrome под ней.
 @MainActor
 final class NotchController {
     private let model: NotchViewModel
     private let store: MoneyStore
     private let settings: AppSettings
     private let tracker: ActivityTracker
+    private let review: ReviewService
     private let resources: ResourceMonitor
+    private let protection: GuardMonitor
     private let panel = NotchPanel()
+    private let sounds = SoundPlayer()
 
     private var eventMonitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
     private var expandTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
     private var restTask: Task<Void, Never>?
-    /// Открыто меню («⋯», выбор проекта): оно вылезает за фигуру,
+    private var remindersTask: Task<Void, Never>?
+    /// Открыто меню (выбор длительности открытия ключа): оно вылезает за фигуру,
     /// и без этого флага чёлка свернулась бы прямо под ним.
     private var isMenuOpen = false
 
     /// Задержки против случайных срабатываний: курсор пролетел мимо выреза
-    /// к пунктам меню — чёлка не дёргается.
+    /// к пунктам меню — чёлка не дёргается. Уход — 300 мс (SPEC).
     private let expandDelay: Duration = .milliseconds(120)
-    private let collapseDelay: Duration = .milliseconds(260)
+    private let collapseDelay: Duration = .milliseconds(300)
 
-    init(store: MoneyStore, settings: AppSettings, tracker: ActivityTracker, review: ReviewService, resources: ResourceMonitor) {
+    init(store: MoneyStore, settings: AppSettings, tracker: ActivityTracker, review: ReviewService, resources: ResourceMonitor, protection: GuardMonitor) {
         self.store = store
         self.settings = settings
         self.tracker = tracker
+        self.review = review
         self.resources = resources
+        self.protection = protection
         self.model = NotchViewModel(geometry: Self.currentGeometry().geometry)
 
         let hosting = NSHostingView(rootView: NotchRootView(
-            model: model, store: store, settings: settings, tracker: tracker, review: review, resources: resources
+            model: model, store: store, settings: settings, tracker: tracker, review: review, resources: resources, protection: protection
         ))
         // Размер окна задаём сами, SwiftUI не должен его менять.
         hosting.sizingOptions = []
@@ -49,8 +55,16 @@ final class NotchController {
         model.onNeedsKeyboard = { [weak self] in self?.panel.makeKey() }
         model.onCollapse = { [weak self] in self?.returnKeyboard() }
         model.onRequestCollapse = { [weak self] in self?.collapse() }
+        model.onPresentAlert = { [weak self] in self?.panel.ignoresMouseEvents = false }
+        model.onSound = { [weak self] kind in
+            guard let self, self.settings.soundEnabled else { return }
+            // На звонке сигналы алертов не к месту; карандаш — твоё действие, он остаётся.
+            if kind.isAlert && self.tracker.isInCall { return }
+            self.sounds.play(kind)
+        }
         // Записка о тревоге нужна только свёрнутой чёлке.
         resources.isPanelExpanded = { [weak self] in self?.model.isExpanded ?? false }
+        protection.isPanelExpanded = { [weak self] in self?.model.isExpanded ?? false }
     }
 
     func start() {
@@ -60,6 +74,7 @@ final class NotchController {
         installEventMonitors()
         observeSystem()
         startRestingTimer()
+        startRemindersTimer()
     }
 
     // MARK: - Положение
@@ -90,7 +105,7 @@ final class NotchController {
         let (geometry, screen) = Self.currentGeometry()
         model.geometry = geometry
         guard let screen else { return }
-        let width = DS.Size.panelWidth
+        let width = min(DS.Size.panelWidth, screen.frame.width)
         let height = min(DS.Size.panelHeight, screen.frame.height)
         panel.setFrame(
             CGRect(x: geometry.notchRect.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height),
@@ -128,7 +143,7 @@ final class NotchController {
         }) {
             eventMonitors.append(monitor)
         }
-        // Esc: шаг назад, а со сводки — свернуть.
+        // Esc: шаг назад, а с главной — свернуть.
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
             guard event.keyCode == 53 else { return event }
             MainActor.assumeIsolated { self?.escape() }
@@ -142,32 +157,42 @@ final class NotchController {
         let point = NSEvent.mouseLocation
         let inside = shapeRect.contains(point)
         // Свёрнутая чёлка клики не ловит вовсе — только наведение (через глобальный
-        // монитор). Так подбородок с глазами и уши не мешают строке меню и вкладкам.
+        // монитор). Так полоска с лицом не мешает строке меню и вкладкам.
         // Пишем только при смене: движений мыши сотни в секунду, а окну это лишняя работа.
         let ignores = !(inside && model.isExpanded)
         if panel.ignoresMouseEvents != ignores { panel.ignoresMouseEvents = ignores }
         if model.isResting { model.isResting = false }
+        followCursor(point)
 
         if model.isExpanded {
-            updateGaze(towards: point)
-            if inside || model.isPinned || isMenuOpen {
+            if inside {
+                cancelCollapse()
+            } else if model.isPinned || isMenuOpen {
                 cancelCollapse()
             } else if !shapeRect.insetBy(dx: -12, dy: -12).contains(point) {
                 scheduleCollapse()
             }
         } else {
-            if inside { scheduleExpand() } else { cancelExpand() }
-            followCursorWhileCollapsed(point)
+            if inside {
+                model.startle()
+                scheduleExpand()
+            } else {
+                cancelExpand()
+            }
         }
     }
 
+    /// Алерт клик мимо не закрывает: ты продолжаешь работать в другом окне,
+    /// а он ждёт своей кнопки.
     private func clickedElsewhere() {
-        guard model.isExpanded, !shapeRect.contains(NSEvent.mouseLocation) else { return }
+        guard model.isExpanded, model.route?.isAlert != true, !shapeRect.contains(NSEvent.mouseLocation) else { return }
         collapse()
     }
 
     private func escape() {
-        if model.isPinned {
+        if model.route?.isAlert == true {
+            model.dismissAlert()
+        } else if model.route != nil {
             model.pop()
         } else if model.isExpanded {
             collapse()
@@ -208,10 +233,12 @@ final class NotchController {
     private func expand() {
         cancelCollapse()
         store.refreshMonth()
-        // Раскрыли — тревога будет в облачке, записка больше не нужна.
+        // Раскрыли — тревога будет на главной, записка больше не нужна.
         resources.dismissAnnouncement()
+        protection.dismissAnnouncement()
         model.expand()
         panel.ignoresMouseEvents = false
+        checkPaymentReminders()
     }
 
     private func collapse() {
@@ -220,6 +247,8 @@ final class NotchController {
         model.collapse()
         panel.ignoresMouseEvents = true
         // Пока была раскрыта, могла появиться тревога — теперь о ней можно сказать.
+        // «Защита» первой: если у неё есть что сказать, тревога ресурсов подождёт.
+        protection.panelDidCollapse()
         resources.panelDidCollapse()
     }
 
@@ -233,44 +262,30 @@ final class NotchController {
         panel.orderFrontRegardless()
     }
 
-    /// Где глаза в координатах экрана — от них считаем, куда смотреть.
-    /// Верх фигуры — верх экрана, поэтому считаем от `maxY` (в AppKit y вверх).
-    /// Лицо всегда по центру: в подбородке или на сводке.
-    private var eyesCenter: CGPoint {
-        let rect = shapeRect
-        let placement = FacePlacement(isExpanded: model.isExpanded, route: model.route)
-        return CGPoint(x: rect.midX, y: rect.maxY - placement.eyeCenterY(notchHeight: model.geometry.notchRect.height))
+    /// Центр лица в координатах экрана: лицо сообщает свою рамку в координатах
+    /// корня панели (y вниз), окно — AppKit (y вверх).
+    private var faceCenter: CGPoint {
+        let face = model.faceFrame
+        let frame = panel.frame
+        return CGPoint(x: frame.minX + face.midX, y: frame.maxY - face.midY)
     }
 
-    /// Раскрыта — глаза смотрят на курсор.
-    private func updateGaze(towards point: CGPoint) {
-        let center = eyesCenter
-        let dx = point.x - center.x
-        let dy = point.y - center.y
-        let distance = max(hypot(dx, dy), 1)
-        let strength = min(distance / 160, 1)
-        // В AppKit y растёт вверх, в SwiftUI — вниз.
-        let gaze = CGPoint(x: dx / distance * strength, y: -dy / distance * strength)
-        if abs(gaze.x - model.gaze.x) > 0.02 || abs(gaze.y - model.gaze.y) > 0.02 {
-            model.gaze = gaze
-        }
-    }
-
-    /// Свёрнутая чёлка: глаза в подбородке следят за курсором, когда он ближе
-    /// 400 pt к вырезу. Дальше — смотрят прямо, и перерисовок нет.
-    private func followCursorWhileCollapsed(_ point: CGPoint) {
-        let center = eyesCenter
+    /// Глаза и рот тянутся к курсору: сдвиг ±5 pt по X и ±2,5 по Y у лица 120
+    /// (масштабируется внутри). Дальше 400 pt — смотрит прямо, и перерисовок нет.
+    private func followCursor(_ point: CGPoint) {
+        let center = faceCenter
         let dx = point.x - center.x
         let dy = point.y - center.y
         let distance = hypot(dx, dy)
         let gaze: CGPoint
-        if distance > 400 {
+        if distance > 400 || model.faceFrame == .zero {
             gaze = .zero
         } else {
-            let strength = min(distance / 120, 1)
+            let strength = min(distance / 160, 1)
+            // В AppKit y растёт вверх, в SwiftUI — вниз.
             gaze = CGPoint(x: dx / max(distance, 1) * strength, y: -dy / max(distance, 1) * strength)
         }
-        if abs(gaze.x - model.gaze.x) > 0.05 || abs(gaze.y - model.gaze.y) > 0.05 {
+        if abs(gaze.x - model.gaze.x) > 0.04 || abs(gaze.y - model.gaze.y) > 0.04 {
             model.gaze = gaze
         }
     }
@@ -283,9 +298,12 @@ final class NotchController {
         observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.layoutPanel() }
         })
-        // Наступил новый день: возможно, и новый месяц.
+        // Наступил новый день: возможно, и новый месяц; и, возможно, пора платить.
         observers.append(center.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.store.refreshMonth() }
+            MainActor.assumeIsolated {
+                self?.store.refreshMonth()
+                self?.checkPaymentReminders()
+            }
         })
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -293,7 +311,7 @@ final class NotchController {
                 self?.layoutPanel()
             }
         })
-        // Меню наших кнопок (SwiftUI Menu и Picker — это NSMenu).
+        // Меню наших кнопок (SwiftUI Menu — это NSMenu).
         observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.isMenuOpen = true
@@ -323,5 +341,29 @@ final class NotchController {
         let isNight = hour >= 1 && hour < 6
         let resting = !tracker.isInCall && (idle > 10 * 60 || (isNight && idle > 2 * 60))
         if model.isResting != resting { model.isResting = resting }
+    }
+
+    // MARK: - «Пора платить»
+
+    /// Раз в полчаса и при раскрытии: не подошло ли списание (за N дней, настройка).
+    /// На звонке и пока тебя нет — молчим: алерт подождёт.
+    private func startRemindersTimer() {
+        remindersTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            while !Task.isCancelled {
+                self?.checkPaymentReminders()
+                try? await Task.sleep(for: .seconds(30 * 60), tolerance: .seconds(60))
+            }
+        }
+    }
+
+    private func checkPaymentReminders() {
+        guard !tracker.isInCall, !model.isResting, model.route == nil || !model.isExpanded else { return }
+        let now = Date()
+        let upcoming = Payments.upcoming(today: LocalDate(now), within: settings.payReminderDays, ledger: store.ledger)
+        guard let reminder = upcoming.first(where: { settings.isPaymentReminderDue($0.id, now: now) }) else { return }
+        // Напомнили — следующий раз не раньше завтра, если не нажать «Напомни завтра» раньше.
+        settings.markPaymentReminded(reminder.id, until: Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)) ?? now)
+        model.present(.pay(reminder))
     }
 }

@@ -280,4 +280,53 @@ struct MoneyEngineTests {
         #expect(glances[1].mood == nil)
         #expect(glances[1].isFirstMonth)
     }
+
+    // MARK: - Первый месяц: настроение по текущему «пока» (решение 2026-10-19)
+    //
+    // Пока ни один месяц не закрыт, Радарчик весь первый месяц сидел бы с серыми
+    // глазами. Поэтому до первого закрытого месяца настроение — по текущему
+    // «пока», по тем же правилам: прошлого месяца нет, плюс с нуля — это рост.
+
+    @Test func firstMonthMoodFollowsTheCurrentMonth() {
+        let p = Fixture.project("Магазин")
+        var ledger = Ledger(
+            projects: [p],
+            recurringCosts: [Fixture.monthly(p, "Сервер", 1_000, from: "2026-10")],
+            oneOffCosts: [],
+            incomes: [Fixture.income(p, 5_000, on: "2026-10-05")]
+        )
+        #expect(MoneyEngine.overallMood(currentMonth: ym("2026-10"), ledger: ledger) == .growing)
+
+        ledger.incomes = [Fixture.income(p, 400, on: "2026-10-05")]
+        #expect(MoneyEngine.overallMood(currentMonth: ym("2026-10"), ledger: ledger) == .losing(streak: 1))
+
+        // Траты есть, доходов ещё нет — «доходов пока нет», как и раньше.
+        ledger.incomes = []
+        #expect(MoneyEngine.overallMood(currentMonth: ym("2026-10"), ledger: ledger) == .sleeping)
+
+        #expect(MoneyEngine.overallMood(currentMonth: ym("2026-10"), ledger: .empty) == nil)
+    }
+
+    @Test func closedMonthStillWinsOnceThereIsOne() {
+        let p = Fixture.project("Магазин")
+        let ledger = Ledger(
+            projects: [p],
+            recurringCosts: [Fixture.monthly(p, "Сервер", 1_000, from: "2026-09")],
+            oneOffCosts: [],
+            incomes: [Fixture.income(p, 500, on: "2026-09-10"), Fixture.income(p, 9_000, on: "2026-10-05")]
+        )
+        // Сентябрь закрыт в минусе — антенка по нему, хоть октябрь «пока» и в плюсе.
+        #expect(MoneyEngine.overallMood(currentMonth: ym("2026-10"), ledger: ledger) == .losing(streak: 1))
+    }
+
+    @Test func netGrowthIsSeenInAnyCurrency() {
+        func rub(_ value: Int64) -> CurrencyAmount { CurrencyAmount(currency: .rub, amount: units(value)) }
+        let usd = CurrencyAmount(currency: .usd, amount: units(100))
+        #expect(MoneyEngine.netGrew(from: [rub(-9_100)], to: [rub(3_900)]))
+        #expect(!MoneyEngine.netGrew(from: [rub(500)], to: [rub(300)]))
+        #expect(!MoneyEngine.netGrew(from: [rub(500)], to: [rub(500)]))
+        // Новая валюта с доходом — рост, с одной тратой — нет.
+        #expect(MoneyEngine.netGrew(from: [rub(500)], to: [rub(500), usd]))
+        #expect(!MoneyEngine.netGrew(from: [], to: [rub(-1_000)]))
+    }
 }

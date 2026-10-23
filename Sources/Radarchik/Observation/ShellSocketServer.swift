@@ -174,8 +174,80 @@ enum ShellHook {
       return 0
     }
 
+    # «Защита» (SPEC.md, §3б): команде нужны ключи (git push, ssh, rails credentials:edit,
+    # docker build) — Радарчик сам спросит Touch ID и откроет их на время команды,
+    # а после неё закроет. Спрашиваем только про такие команды — остальные не ждут
+    # ни миллисекунды. Выключить на время: export RADARCHIK_GUARD_OFF=1
+    typeset -g _radarchik_guard_socket="$HOME/Library/Application Support/Radarchik/guard-shell.sock"
+    typeset -g _radarchik_guard_token=""
+
+    _radarchik_guard_preexec() {
+      _radarchik_guard_token=""
+      [[ -n $RADARCHIK_GUARD_OFF || ! -S $_radarchik_guard_socket ]] && return 0
+      # Третий аргумент — команда с раскрытыми алиасами (gp → git push).
+      local line=${3:-$1}
+      [[ $line =~ '(^|[^[:alnum:]_.-])(git|ssh|scp|sftp|rsync|mosh|kamal|cap|ansible|ansible-playbook|rails|docker|docker-compose)([[:space:]]|$)' ]] || return 0
+      zsocket "$_radarchik_guard_socket" 2>/dev/null || return 0
+      local fd=$REPLY token="$$-$EPOCHREALTIME" reply=""
+      line=${line//$'\n'/ }
+      line=${line//$'\t'/ }
+      print -rn -- "need"$'\t'"$token"$'\t'"$PWD"$'\t'"$line"$'\n' >&$fd 2>/dev/null
+      # Ждём ответ, пока ты подтверждаешь Touch ID; ключи не нужны — ответ мгновенный.
+      read -r -t 120 -u $fd reply 2>/dev/null
+      exec {fd}>&-
+      case $reply in
+        opened*) _radarchik_guard_token=$token ;;
+        hint*) print -u2 -r -- "${reply#hint$'\t'}" ;;
+      esac
+      return 0
+    }
+
+    _radarchik_guard_precmd() {
+      local token=$_radarchik_guard_token
+      _radarchik_guard_token=""
+      [[ -z $token || ! -S $_radarchik_guard_socket ]] && return 0
+      if zsocket "$_radarchik_guard_socket" 2>/dev/null; then
+        local fd=$REPLY
+        print -rn -- "done"$'\t'"$token"$'\n' >&$fd 2>/dev/null
+        exec {fd}>&-
+      fi
+      return 0
+    }
+
+    # «Защита»: слежка за SSH-ключом (SPEC.md, §3б). Команды ходят к ssh-agent через
+    # Радарчика: он записывает, кто пользовался ключом, и передаёт всё агенту как есть.
+    # Радарчик не запущен или агент у терминала другой — напрямую, как раньше.
+    # Выключить на время: export RADARCHIK_AGENT_OFF=1
+    typeset -g _radarchik_agent_socket="$HOME/Library/Application Support/Radarchik/agent.sock"
+    typeset -g _radarchik_agent_marker="$HOME/Library/Application Support/Radarchik/agent.upstream"
+    # Настоящий агент терминала — запоминаем один раз; вложенные оболочки получают его по наследству.
+    if [[ -z $RADARCHIK_REAL_AUTH_SOCK && -n $SSH_AUTH_SOCK && $SSH_AUTH_SOCK != $_radarchik_agent_socket ]]; then
+      export RADARCHIK_REAL_AUTH_SOCK=$SSH_AUTH_SOCK
+    fi
+
+    # Перед каждой командой: метка рядом с сокетом — агент за посредником и pid Радарчика.
+    # Тот же агент и Радарчик жив — через посредника. Только встроенные команды zsh, без процессов.
+    _radarchik_agent_route() {
+      [[ -z $RADARCHIK_REAL_AUTH_SOCK ]] && return 0
+      local upstream="" pid=""
+      [[ -r $_radarchik_agent_marker ]] && { IFS= read -r upstream; IFS= read -r pid } < $_radarchik_agent_marker
+      if [[ -z $RADARCHIK_AGENT_OFF && -S $_radarchik_agent_socket && $upstream == $RADARCHIK_REAL_AUTH_SOCK && $pid == <-> ]] \
+          && kill -0 $pid 2>/dev/null; then
+        export SSH_AUTH_SOCK=$_radarchik_agent_socket
+      else
+        export SSH_AUTH_SOCK=$RADARCHIK_REAL_AUTH_SOCK
+      fi
+      return 0
+    }
+    _radarchik_agent_route
+
     autoload -Uz add-zsh-hook
+    # Порядок важен: Touch ID — до того, как наблюдение засечёт начало команды,
+    # а закрыть ключи — после того, как оно прочитает код выхода ($?).
+    add-zsh-hook preexec _radarchik_agent_route
+    add-zsh-hook preexec _radarchik_guard_preexec
     add-zsh-hook preexec _radarchik_preexec
     add-zsh-hook precmd _radarchik_precmd
+    add-zsh-hook precmd _radarchik_guard_precmd
     """#
 }

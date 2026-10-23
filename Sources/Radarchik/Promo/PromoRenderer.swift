@@ -99,7 +99,7 @@ enum PromoRenderer {
         for index in 0..<count {
             try autoreleasepool {
                 let t = range.start + Double(index) / Double(gifFPS)
-                world.show(PromoTimeline.pose(at: t, format: .wide).route)
+                world.show(PromoTimeline.pose(at: t, format: .wide).shownRoute)
                 let renderer = ImageRenderer(content: PromoLoopFrame(t: t, world: world))
                 renderer.scale = 1
                 guard let image = renderer.cgImage else { throw Failure(description: "GIF frame \(index) not rendered") }
@@ -110,7 +110,7 @@ enum PromoRenderer {
     }
 
     private static func render(t: Double, world: PromoWorld, format: PromoFormat) throws -> CGImage {
-        world.show(PromoTimeline.pose(at: t, format: format).route)
+        world.show(PromoTimeline.pose(at: t, format: format).shownRoute)
         let renderer = ImageRenderer(content: PromoFrame(t: t, world: world, format: format))
         renderer.scale = 1
         guard let image = renderer.cgImage else { throw Failure(description: "frame at \(t) s not rendered") }

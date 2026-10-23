@@ -54,6 +54,14 @@ struct MascotBrainTests {
         #expect(MascotBrain.state(isExpanded: false, mood: .losing(streak: 1), isResting: false, event: .incomeAdded) == .catchCoin)
     }
 
+    /// Итог месяца вырос — на миг щурится от радости (2026-10-19), и в свёрнутой чёлке тоже.
+    @Test func growingNetMakesHimHappyForAMoment() {
+        #expect(MascotBrain.state(isExpanded: false, mood: nil, isResting: false, event: .netGrew) == .happy)
+        #expect(MascotBrain.state(isExpanded: true, mood: .losing(streak: 2), isResting: false, event: .netGrew) == .happy)
+        // Монетка — главнее: сначала ловит доход, радость — следующим событием.
+        #expect(MascotBrain.state(isExpanded: false, mood: nil, isResting: false, event: .incomeAdded) == .catchCoin)
+    }
+
     @Test func callHushesCollapsedMascot() {
         // На звонке свёрнутая чёлка притихает: глаза прикрыты, цифры спрятаны.
         #expect(MascotBrain.state(isExpanded: false, mood: .growing, isResting: false, event: nil, isInCall: true) == .onCall)
@@ -76,6 +84,19 @@ struct MascotBrainTests {
         #expect(MascotBrain.state(isExpanded: true, mood: .growing, isResting: false, event: nil, hasNewTips: true, hasResourceAlert: true) == .worried)
         // Поймать монетку — всё равно радость.
         #expect(MascotBrain.state(isExpanded: true, mood: .growing, isResting: false, event: .incomeAdded, hasResourceAlert: true) == .catchCoin)
+    }
+
+    /// «Защита» заметила опасное (чужой взял SSH-ключом, node -e с eval) — глаза
+    /// серьёзные и красные. Это важнее всего: и звонка, и сна, и монетки (2026-10-20).
+    @Test func guardAlarmMakesTheFaceSerious() {
+        #expect(MascotBrain.state(isExpanded: false, mood: .growing, isResting: false, event: nil, hasGuardAlarm: true) == .alarm)
+        #expect(MascotBrain.state(isExpanded: false, mood: nil, isResting: true, event: nil, hasGuardAlarm: true) == .alarm)
+        #expect(MascotBrain.state(isExpanded: false, mood: nil, isResting: false, event: nil, isInCall: true, hasGuardAlarm: true) == .alarm)
+        #expect(MascotBrain.state(
+            isExpanded: true, mood: .growing, isResting: false, event: .incomeAdded, hasNewTips: true, hasResourceAlert: true, hasGuardAlarm: true
+        ) == .alarm)
+        // Тревога ресурсов по-прежнему только беспокоит.
+        #expect(MascotBrain.state(isExpanded: false, mood: .growing, isResting: false, event: nil, hasResourceAlert: true) == .worried)
     }
 
     @Test func antennaFollowsMood() {

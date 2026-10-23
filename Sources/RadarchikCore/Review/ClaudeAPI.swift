@@ -215,6 +215,83 @@ public enum ClaudeAPI {
         )
     }
 
+    // MARK: - «Что это?» (2026-10-22)
+
+    /// Короткий ответ по схеме: что это, verdict, что делать. Усилие low, минута на всё.
+    public static func explainRequest(apiKey: String, model: ClaudeModel, facts: ExplainFacts) throws -> URLRequest {
+        var request = URLRequest(url: messagesURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        setHeaders(&request, apiKey: apiKey)
+        if model.supportsServerFallback {
+            request.setValue(fallbackBeta, forHTTPHeaderField: "anthropic-beta")
+        }
+        var body: [String: Any] = [
+            "model": model.rawValue,
+            "max_tokens": 2_000,
+            "system": ExplainPrompt.system,
+            "messages": [["role": "user", "content": ExplainPrompt.user(facts)]],
+            "output_config": [
+                "effort": "low",
+                "format": ["type": "json_schema", "schema": explanationSchema()],
+            ],
+        ]
+        if model.supportsServerFallback {
+            body["fallbacks"] = "default"
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    public static func parseExplanation(data: Data, statusCode: Int, model: ClaudeModel) throws -> ExplainResult {
+        guard (200..<300).contains(statusCode) else {
+            let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: data)
+            throw ClaudeAPIError.http(status: statusCode, type: envelope?.error.type, message: envelope?.error.message)
+        }
+        guard let message = try? JSONDecoder().decode(MessageResponse.self, from: data) else {
+            throw ClaudeAPIError.badResponse(L("неожиданный формат ответа", "unexpected response format"))
+        }
+        switch message.stopReason {
+        case "refusal": throw ClaudeAPIError.refusal(category: message.stopDetails?.category)
+        case "max_tokens": throw ClaudeAPIError.truncated
+        default: break
+        }
+        let text = message.content.filter { $0.type == "text" }.compactMap(\.text).joined()
+        guard let json = text.data(using: .utf8), let envelope = try? JSONDecoder().decode(ExplainEnvelope.self, from: json) else {
+            throw ClaudeAPIError.badResponse(L("в ответе нет объяснения в ожидаемом виде", "no explanation in the expected shape"))
+        }
+        let input = message.usage?.inputTokens ?? 0
+        let output = message.usage?.outputTokens ?? 0
+        return ExplainResult(
+            explanation: Explanation(
+                what: envelope.what.trimmingCharacters(in: .whitespacesAndNewlines),
+                verdict: Explanation.Verdict(rawValue: envelope.verdict.lowercased()) ?? .unknown,
+                advice: envelope.advice.trimmingCharacters(in: .whitespacesAndNewlines)
+            ),
+            model: message.model ?? model.rawValue,
+            costUSD: Double(input) * model.pricing.input / 1_000_000 + Double(output) * model.pricing.output / 1_000_000
+        )
+    }
+
+    static func explanationSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "properties": [
+                "what": ["type": "string"],
+                "verdict": ["type": "string", "enum": ["normal", "attention", "unknown"]],
+                "advice": ["type": "string"],
+            ],
+            "required": ["what", "verdict", "advice"],
+            "additionalProperties": false,
+        ]
+    }
+
+    private struct ExplainEnvelope: Decodable {
+        let what: String
+        let verdict: String
+        let advice: String
+    }
+
     // MARK: - Внутреннее
 
     private static func setHeaders(_ request: inout URLRequest, apiKey: String) {

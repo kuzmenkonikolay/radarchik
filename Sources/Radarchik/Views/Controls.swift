@@ -97,8 +97,9 @@ struct SegmentedPicker<Value: Hashable>: View {
                 segment(option)
             }
         }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9).fill(DS.Surface.field))
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: DS.Radius.segment, style: .continuous).fill(DS.Surface.input))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.segment, style: .continuous).stroke(DS.Surface.inputBorder, lineWidth: 1))
         .fixedSize(horizontal: !fills, vertical: true)
     }
 
@@ -108,19 +109,19 @@ struct SegmentedPicker<Value: Hashable>: View {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) { selection = option.value }
         } label: {
             Text(option.title)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? DS.Ink.primary : DS.Ink.secondary)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.black : hovered == option.value ? DS.Ink.primary : DS.Ink.body)
                 .lineLimit(1)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, fills ? 12 : 11)
                 .frame(maxWidth: fills ? .infinity : nil)
-                .frame(height: 24)
+                .frame(height: fills ? 28 : 24)
                 .background {
                     if isSelected {
-                        RoundedRectangle(cornerRadius: 7)
-                            .fill(DS.Surface.selected)
+                        RoundedRectangle(cornerRadius: DS.Radius.segmentInner, style: .continuous)
+                            .fill(Color.white)
                             .matchedGeometryEffect(id: "selection", in: namespace)
                     } else if hovered == option.value {
-                        RoundedRectangle(cornerRadius: 7).fill(DS.Surface.cardHover)
+                        RoundedRectangle(cornerRadius: DS.Radius.segmentInner, style: .continuous).fill(DS.Surface.chip)
                     }
                 }
                 .contentShape(Rectangle())
@@ -170,7 +171,7 @@ private struct PanelSwitch: View {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { isOn.toggle() }
         } label: {
             Capsule()
-                .fill(isOn ? DS.Accent.on : DS.Surface.switchOff)
+                .fill(isOn ? DS.Accent.on : Color.white.opacity(0.18))
                 .frame(width: 32, height: 18)
                 .overlay(alignment: isOn ? .trailing : .leading) {
                     Circle()
@@ -215,7 +216,8 @@ struct PanelGroup<Content: View>: View {
                     }
                 }
             }
-            .background(RoundedRectangle(cornerRadius: DS.Radius.card).fill(DS.Surface.card))
+            .background(RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous).fill(DS.Surface.group))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous).stroke(DS.Surface.groupBorder, lineWidth: 1))
         }
     }
 }
@@ -249,7 +251,7 @@ struct SettingRow<Trailing: View>: View {
                 if let detail {
                     Text(Typography.bind(detail))
                         .font(.system(size: 11))
-                        .foregroundStyle(DS.Ink.muted)
+                        .foregroundStyle(DS.Ink.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -316,11 +318,11 @@ struct NavigationRow: View {
                     if showsChevron {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(DS.Ink.muted)
+                            .foregroundStyle(DS.Ink.secondary)
                     }
                 }
             }
-            .background(hovering ? DS.Surface.cardHover : .clear)
+            .background(hovering ? DS.Surface.rowHover : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -358,7 +360,7 @@ struct MenuPicker<Value: Hashable>: View {
         } label: {
             HStack(spacing: 6) {
                 if let hex = current?.colorHex {
-                    RoundedRectangle(cornerRadius: 2).fill(Color(hex: hex)).frame(width: 4, height: 14)
+                    Circle().fill(Color(hex: hex)).frame(width: 8, height: 8)
                 }
                 Text(current?.title ?? L("Выбрать", "Choose"))
                     .font(.system(size: 13))
@@ -367,11 +369,12 @@ struct MenuPicker<Value: Hashable>: View {
                 Spacer(minLength: DS.Spacing.xs)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(DS.Ink.muted)
+                    .foregroundStyle(DS.Ink.secondary)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(hovering ? DS.Surface.cardHover : DS.Surface.field))
+            .padding(.horizontal, 12)
+            .frame(height: DS.Size.control)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).fill(DS.Surface.input))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).stroke(hovering ? DS.Accent.focus : DS.Surface.inputBorder, lineWidth: 1))
             .contentShape(Rectangle())
         }
         .menuStyle(.button)
@@ -403,8 +406,9 @@ struct ValueStepper: View {
                 .frame(minWidth: minWidth)
             StepButton(systemImage: "chevron.right", help: nextHelp, action: onNext)
         }
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(DS.Surface.field))
+        .frame(height: DS.Size.control)
+        .background(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).fill(DS.Surface.input))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).stroke(DS.Surface.inputBorder, lineWidth: 1))
         .fixedSize()
     }
 }
@@ -420,8 +424,8 @@ private struct StepButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(hovering ? DS.Ink.primary : DS.Ink.secondary)
-                .frame(width: 28, height: 30)
-                .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(hovering ? DS.Surface.cardHover : .clear))
+                .frame(width: 28, height: DS.Size.control)
+                .background(RoundedRectangle(cornerRadius: DS.Radius.field - 2, style: .continuous).fill(hovering ? DS.Surface.chip : .clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -479,29 +483,5 @@ struct HourStepper: View {
             text: String(format: "%02d:00", hour), minWidth: 64, previousHelp: L("На час раньше", "An hour earlier"), nextHelp: L("На час позже", "An hour later"),
             onPrevious: { hour = (hour + 23) % 24 }, onNext: { hour = (hour + 1) % 24 }
         )
-    }
-}
-
-// MARK: - Кнопка-значок
-
-/// Кнопка из одного значка: «‹ назад», карандаш, шестерёнка. Подсвечивается при наведении.
-struct IconButton: View {
-    let systemImage: String
-    let help: String
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(hovering ? DS.Ink.primary : DS.Ink.secondary)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(hovering ? DS.Surface.cardHover : .clear))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(help)
     }
 }

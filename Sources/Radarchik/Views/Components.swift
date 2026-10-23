@@ -1,45 +1,114 @@
+import AppKit
 import SwiftUI
 import RadarchikCore
 
-// Мелкие общие элементы панели: заголовок, кнопки, строки форм, шаг месяцев,
-// раскладка чипов «в строку с переносом».
+// Базовые элементы дизайна v2: карточка, кнопки, чипы, бейдж, кнопка тулбара,
+// поля, строки списков, раскладка «в строку с переносом».
 
-/// Заголовок внутреннего экрана: «‹» назад, цветная метка проекта, название, действие справа.
-struct PanelHeader<Trailing: View>: View {
-    let title: String
-    var colorHex: String?
-    let onBack: () -> Void
-    @ViewBuilder var trailing: Trailing
+// MARK: - Карточка
+
+/// Карточка панели: чуть светлее чёрного и полупрозрачная, рамка 1 pt, радиус 22.
+struct Card<Content: View>: View {
+    var padding = EdgeInsets(top: 18, leading: 22, bottom: 18, trailing: 22)
+    @ViewBuilder var content: Content
 
     var body: some View {
-        HStack(spacing: DS.Spacing.xs) {
-            IconButton(systemImage: "chevron.left", help: L("Назад (Esc)", "Back (Esc)"), action: onBack)
-                .padding(.leading, -6)
+        content
+            .padding(padding)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous).fill(DS.Surface.card))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous).stroke(DS.Surface.cardBorder, lineWidth: 1))
+    }
+}
 
-            if let colorHex {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(hex: colorHex))
-                    .frame(width: 4, height: 16)
+extension Card {
+    init(vertical: CGFloat, horizontal: CGFloat, @ViewBuilder content: () -> Content) {
+        self.init(padding: EdgeInsets(top: vertical, leading: horizontal, bottom: vertical, trailing: horizontal), content: content)
+    }
+}
+
+/// Шапка карточки: цветная точка, заголовок жирным и подпись серым.
+struct CardHeader: View {
+    var dot: Color?
+    let title: String
+    var subtitle: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let dot {
+                Circle().fill(dot).frame(width: 7, height: 7)
             }
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.bodyBold)
                 .foregroundStyle(DS.Ink.primary)
                 .lineLimit(1)
-            Spacer(minLength: 0)
-            trailing
+            if let subtitle {
+                Text("· " + subtitle)
+                    .font(.body)
+                    .foregroundStyle(DS.Ink.secondary)
+                    .lineLimit(1)
+            }
         }
     }
 }
 
-extension PanelHeader where Trailing == EmptyView {
-    init(title: String, colorHex: String? = nil, onBack: @escaping () -> Void) {
-        self.init(title: title, colorHex: colorHex, onBack: onBack) { EmptyView() }
+// MARK: - Кнопки
+
+/// Главное действие: белая кнопка с чёрным текстом.
+struct PrimaryButton: View {
+    let title: String
+    var systemImage: String?
+    /// Значок после текста («Открыть кабинет ↗»).
+    var iconAfter = false
+    let action: () -> Void
+
+    init(_ title: String, systemImage: String? = nil, iconAfter: Bool = false, action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.iconAfter = iconAfter
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) { ButtonLabel(title: title, systemImage: systemImage, iconAfter: iconAfter) }
+            .buttonStyle(PanelButtonStyle(kind: .primary))
     }
 }
 
-/// Кнопка-«таблетка». `prominent` — главное действие экрана (светлая).
-/// Подсвечивается при наведении, при нажатии темнеет и чуть сжимается,
-/// неактивная — полупрозрачная.
+/// Второстепенное действие: белая подложка α 0.08.
+struct SecondaryButton: View {
+    let title: String
+    var systemImage: String?
+    let action: () -> Void
+
+    init(_ title: String, systemImage: String? = nil, action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) { ButtonLabel(title: title, systemImage: systemImage) }
+            .buttonStyle(PanelButtonStyle(kind: .secondary))
+    }
+}
+
+/// Третье действие: без фона, серый текст («Не надо»).
+struct PlainButton: View {
+    let title: String
+    let action: () -> Void
+
+    init(_ title: String, action: @escaping () -> Void) {
+        self.title = title
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) { ButtonLabel(title: title, systemImage: nil) }
+            .buttonStyle(PanelButtonStyle(kind: .plain))
+    }
+}
+
+/// Прежнее имя: `prominent` — главная кнопка. Остальным экранам менять код не нужно.
 struct PillButton: View {
     let title: String
     var systemImage: String?
@@ -54,56 +123,256 @@ struct PillButton: View {
     }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let systemImage {
-                    Image(systemName: systemImage).font(.system(size: 11, weight: .bold))
-                }
-                Text(title).lineLimit(1)
+        Button(action: action) { ButtonLabel(title: title, systemImage: systemImage) }
+            .buttonStyle(PanelButtonStyle(kind: prominent ? .primary : .secondary))
+    }
+}
+
+private struct ButtonLabel: View {
+    let title: String
+    let systemImage: String?
+    var iconAfter = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let systemImage, !iconAfter {
+                Image(systemName: systemImage).font(.system(size: 11, weight: .bold))
+            }
+            Text(title).lineLimit(1).fixedSize()
+            if let systemImage, iconAfter {
+                Image(systemName: systemImage).font(.system(size: 10, weight: .bold))
             }
         }
-        .buttonStyle(PillButtonStyle(prominent: prominent))
     }
 }
 
-struct PillButtonStyle: ButtonStyle {
-    var prominent = false
+struct PanelButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, plain }
+    var kind: Kind
 
     func makeBody(configuration: Configuration) -> some View {
-        PillBody(configuration: configuration, prominent: prominent)
+        PanelButtonBody(configuration: configuration, kind: kind)
     }
 }
 
-private struct PillBody: View {
+private struct PanelButtonBody: View {
     let configuration: ButtonStyleConfiguration
-    let prominent: Bool
+    let kind: PanelButtonStyle.Kind
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovering = false
 
     var body: some View {
         configuration.label
-            .font(.system(size: 12, weight: .medium))
-            .padding(.horizontal, 12)
-            .frame(height: 28)
-            .foregroundStyle(prominent ? Color.black : DS.Ink.primary)
-            .background(Capsule().fill(fill))
+            .font(.bodySemibold)
+            .padding(.horizontal, kind == .plain ? 10 : 16)
+            .frame(height: DS.Size.button)
+            .foregroundStyle(foreground)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous).fill(fill))
             .opacity(isEnabled ? 1 : 0.4)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.button))
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+
+    private var foreground: Color {
+        switch kind {
+        case .primary: .black
+        case .secondary: DS.Ink.primary
+        case .plain: hovering ? DS.Ink.body : DS.Ink.secondary
+        }
     }
 
     private var fill: Color {
         let active = hovering && isEnabled
-        if prominent {
-            return DS.Ink.primary.opacity(configuration.isPressed ? 0.72 : active ? 0.88 : 1)
+        switch kind {
+        case .primary: return Color.white.opacity(configuration.isPressed ? 0.78 : active ? 0.92 : 1)
+        case .secondary: return configuration.isPressed ? DS.Surface.secondaryHover : active ? DS.Surface.secondaryHover : DS.Surface.secondaryButton
+        case .plain: return active ? DS.Surface.chip : .clear
         }
-        return configuration.isPressed ? DS.Surface.pressed : active ? DS.Surface.cardHover : DS.Surface.card
     }
 }
 
-/// Строка формы: подпись слева, поле справа.
+/// Кнопка тулбара в «ушах» выреза: 38×30, радиус 10, значок 17 pt.
+/// Активная — белая подложка α 0.10 и светлый значок.
+struct ToolbarButton: View {
+    let systemImage: String
+    let help: String
+    var isActive = false
+    /// Бейдж с числом (советы) или точка (тревога).
+    var badge: ToolbarBadge?
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isActive || hovering ? DS.Ink.primary : DS.Ink.secondary)
+                .frame(width: DS.Size.toolbarButton.width, height: DS.Size.toolbarButton.height)
+                .background(RoundedRectangle(cornerRadius: DS.Radius.toolbar, style: .continuous).fill(isActive ? DS.Surface.toolbarActive : hovering ? DS.Surface.toolbarHover : .clear))
+                .overlay(alignment: .topTrailing) {
+                    if let badge {
+                        badge.view.offset(x: 4, y: -4)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+}
+
+/// Что висит на кнопке тулбара: число (советы) или точка (тревога).
+enum ToolbarBadge: Equatable {
+    case count(Int, Color)
+    case dot(Color)
+
+    @ViewBuilder var view: some View {
+        switch self {
+        case .count(let count, let color):
+            Text("\(count)")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Color.black.opacity(0.85))
+                .padding(.horizontal, 4)
+                .frame(minWidth: 14, minHeight: 14)
+                .background(Capsule().fill(color))
+        case .dot(let color):
+            Circle().fill(color).frame(width: 7, height: 7)
+        }
+    }
+}
+
+// MARK: - Чипы и бейджи
+
+/// Чип: короткая надпись на подложке. Цвет — по смыслу.
+struct Chip: View {
+    let text: String
+    var systemImage: String?
+    var background: Color = DS.Surface.chip
+    var foreground: Color = DS.Ink.primary
+    var bold = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let systemImage {
+                Image(systemName: systemImage).font(.system(size: 10, weight: .bold))
+            }
+            Text(text).lineLimit(1)
+        }
+        .font(.system(size: 12, weight: bold ? .bold : .medium))
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous).fill(background))
+    }
+}
+
+/// Чип-кнопка: «К оплате 30,5к · больше всего Selectel ↗».
+struct ChipButton: View {
+    let text: String
+    var systemImage: String? = "arrow.up.right"
+    var background: Color = DS.Tone.payChipBg
+    var foreground: Color = DS.Tone.payChipText
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(text).lineLimit(1)
+                if let systemImage {
+                    Image(systemName: systemImage).font(.system(size: 9, weight: .bold))
+                }
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous).fill(background.opacity(hovering ? 1.6 : 1)))
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.chip))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// Бейдж с числом советов: фон `tips` α 0.16, текст `tips`, 11 bold.
+struct CountBadge: View {
+    let count: Int
+    var color: Color = DS.Tone.tips
+
+    var body: some View {
+        Text("\(count)")
+            .font(.badge)
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .frame(height: 20)
+            .background(Capsule().fill(color.opacity(0.16)))
+    }
+}
+
+// MARK: - Шапка внутреннего экрана
+
+/// «‹» назад и заголовок — у экранов, куда зашли с другого (настройки Claude, «Что уходит»).
+struct PanelHeader<Trailing: View>: View {
+    let title: String
+    var colorHex: String?
+    let onBack: () -> Void
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: DS.Spacing.xs) {
+            IconButton(systemImage: "chevron.left", help: L("Назад (Esc)", "Back (Esc)"), action: onBack)
+                .padding(.leading, -6)
+            if let colorHex {
+                Circle().fill(Color(hex: colorHex)).frame(width: 8, height: 8)
+            }
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(DS.Ink.primary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            trailing
+        }
+    }
+}
+
+extension PanelHeader where Trailing == EmptyView {
+    init(title: String, colorHex: String? = nil, onBack: @escaping () -> Void) {
+        self.init(title: title, colorHex: colorHex, onBack: onBack) { EmptyView() }
+    }
+}
+
+// MARK: - Поля
+
+/// Поле с подписью сверху (11 semibold, серая) — колонки формы.
+struct LabeledField<Content: View>: View {
+    let label: String
+    @ViewBuilder var content: Content
+
+    init(_ label: String, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.label)
+                .foregroundStyle(DS.Ink.secondary)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Строка формы: подпись слева, поле справа (настройки Claude).
 struct FormRow<Content: View>: View {
     let label: String
     @ViewBuilder var content: Content
@@ -116,19 +385,19 @@ struct FormRow<Content: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: DS.Spacing.xs) {
             Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(DS.Ink.muted)
-                .frame(width: DS.Size.formLabel, alignment: .leading)
+                .font(.caption)
+                .foregroundStyle(DS.Ink.secondary)
+                .frame(width: FormRow.labelWidth, alignment: .leading)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    nonisolated static var labelWidth: CGFloat { 116 }
 }
 
-/// Текстовое поле в стиле панели: на полупрозрачной подложке, высотой с кнопки.
-/// В фокусе — синяя рамка (передаёт родитель: фокусом управляет он, `.focused`).
+/// Текстовое поле: чёрная подложка с рамкой, высотой 34. В фокусе рамка светлее.
 /// `suffix` — приписка внутри поля справа, например значок валюты.
-/// (Выбор месяца, дня и часа — `MonthStepper` и соседи в Controls.swift.)
 struct PanelTextField: View {
     let placeholder: String
     @Binding var text: String
@@ -154,7 +423,7 @@ struct PanelTextField: View {
             if let suffix {
                 Text(suffix)
                     .font(.system(size: 13))
-                    .foregroundStyle(DS.Ink.muted)
+                    .foregroundStyle(DS.Ink.secondary)
             }
         }
         .modifier(FieldChrome(isFocused: isFocused))
@@ -182,16 +451,16 @@ struct PanelSecureField: View {
     }
 }
 
-/// Подложка поля: отступы, высота, рамка в фокусе.
-private struct FieldChrome: ViewModifier {
-    let isFocused: Bool
+/// Подложка поля: отступы, высота, рамка.
+struct FieldChrome: ViewModifier {
+    var isFocused = false
 
     func body(content: Content) -> some View {
         content
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(DS.Surface.field))
-            .overlay(RoundedRectangle(cornerRadius: DS.Radius.field).stroke(isFocused ? DS.Accent.focus : .clear, lineWidth: 1.5))
+            .padding(.horizontal, 12)
+            .frame(height: DS.Size.control)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).fill(DS.Surface.input))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).stroke(isFocused ? DS.Accent.focus : DS.Surface.inputBorder, lineWidth: 1))
             .animation(.easeOut(duration: 0.15), value: isFocused)
     }
 }
@@ -226,7 +495,7 @@ struct DeleteButton: View {
                 Text(armed ? L("Точно удалить?", "Really delete?") : title)
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(armed ? DS.Money.negativeText : DS.Ink.muted)
+            .foregroundStyle(armed ? DS.Money.negativeText : DS.Ink.secondary)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
@@ -247,8 +516,7 @@ struct SectionTitle: View {
     var body: some View {
         Text(text)
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(DS.Ink.muted)
-            .textCase(.uppercase)
+            .foregroundStyle(DS.Ink.secondary)
     }
 }
 
@@ -269,23 +537,23 @@ struct EntryRow: View {
         HStack(spacing: DS.Spacing.xs) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(DS.Ink.primary)
                     .lineLimit(1)
                 if let subtitle {
                     Text(subtitle)
                         .font(.system(size: 11))
-                        .foregroundStyle(DS.Ink.muted)
+                        .foregroundStyle(DS.Ink.secondary)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: DS.Spacing.xs)
             Text(amount)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(amountColor)
             if let link {
-                IconButton(systemImage: "arrow.up.right.square", help: L("Открыть ", "Open ") + (link.host() ?? L("ссылку", "link"))) {
+                IconButton(systemImage: "arrow.up.right", help: L("Открыть ", "Open ") + (link.host() ?? L("ссылку", "link"))) {
                     NSWorkspace.shared.open(link)
                 }
                 .padding(.vertical, -4)
@@ -296,12 +564,35 @@ struct EntryRow: View {
         .padding(.vertical, inGroup ? 8 : 7)
         .background(
             RoundedRectangle(cornerRadius: inGroup ? 0 : DS.Radius.field)
-                .fill(hovering ? DS.Surface.cardHover : (inGroup ? Color.clear : DS.Surface.card))
+                .fill(hovering ? DS.Surface.rowHover : (inGroup ? Color.clear : DS.Surface.group))
         )
         .opacity(dimmed ? 0.55 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture(perform: action)
+    }
+}
+
+/// Кнопка из одного значка: «‹ назад», карандаш, шестерёнка. Подсвечивается при наведении.
+struct IconButton: View {
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(hovering ? DS.Ink.primary : DS.Ink.secondary)
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? DS.Surface.chip : .clear))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 

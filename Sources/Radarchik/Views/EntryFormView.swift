@@ -1,12 +1,13 @@
 import SwiftUI
 import RadarchikCore
 
-/// Новая запись или правка: регулярная трата, разовая трата или доход.
+/// H. Новая запись прямо в чёлке: слева лицо squint с ручками и подпись, справа форма —
+/// сегмент-контрол «Регулярная / Разовая / Доход», поля в три колонки, чипы проектов
+/// с мини-лицами, внизу подсказка и кнопки «Отмена» и «Записать».
 ///
 /// Регулярную трату вводят один раз, дальше она начисляется сама. При правке
-/// прошлое не переписывается:
-/// - новая сумма действует «с месяца» (по умолчанию с текущего);
-/// - выключение задаёт последний оплачиваемый месяц, история остаётся.
+/// прошлое не переписывается: новая сумма действует «с месяца», выключение
+/// задаёт последний оплачиваемый месяц, история остаётся.
 struct EntryFormView: View {
     let target: EntryFormTarget
     let model: NotchViewModel
@@ -31,6 +32,7 @@ struct EntryFormView: View {
     @State private var amountText: String
     @State private var period: CostPeriod
     @State private var startMonth: YearMonth
+    @State private var dueDay: Int?
     @State private var date: Date
     @State private var priceFrom: YearMonth
     @State private var isActive: Bool
@@ -45,7 +47,6 @@ struct EntryFormView: View {
 
         let month = store.month
         let firstProject = store.projects.first?.id
-        // Значения для новой записи; правка ниже их перезапишет.
         var original: Original?
         var originalAmount: Int64?
         var kind = EntryKind.recurring
@@ -54,6 +55,7 @@ struct EntryFormView: View {
         var url = ""
         var period = CostPeriod.monthly
         var startMonth = month
+        var dueDay: Int?
         var date = Date()
         var priceFrom = month
         var isActive = true
@@ -72,9 +74,9 @@ struct EntryFormView: View {
                 url = cost.url ?? ""
                 period = cost.period
                 startMonth = cost.startMonth
+                dueDay = cost.dueDay
                 priceFrom = max(month, cost.startMonth)
                 originalAmount = cost.price(at: priceFrom) ?? cost.prices.last?.amount
-                // «Активна» = у траты нет последнего месяца.
                 isActive = cost.endMonth == nil
                 lastMonth = cost.endMonth ?? month
             }
@@ -108,6 +110,7 @@ struct EntryFormView: View {
         _amountText = State(initialValue: originalAmount.map(MoneyParser.editingString) ?? "")
         _period = State(initialValue: period)
         _startMonth = State(initialValue: startMonth)
+        _dueDay = State(initialValue: dueDay)
         _date = State(initialValue: date)
         _priceFrom = State(initialValue: priceFrom)
         _isActive = State(initialValue: isActive)
@@ -115,78 +118,96 @@ struct EntryFormView: View {
     }
 
     var body: some View {
-        if store.projects.isEmpty && original == nil {
-            noProjects
-        } else {
-            form
+        HStack(alignment: .top, spacing: DS.Spacing.cards) {
+            FaceCard(face: .main(.squint, tone: DS.Tone.face, hands: .down), phrase: caption)
+            Card(vertical: 18, horizontal: 20) {
+                if store.projects.isEmpty && original == nil {
+                    noProjects
+                } else {
+                    form
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Подпись у лица — по виду записи.
+    private var caption: String {
+        switch kind {
+        case .recurring: L("Запишу один раз — дальше начислю сам каждый месяц.", "Enter it once — I’ll accrue it myself every month.")
+        case .oneOff: L("Разовая: запишу в этот месяц и больше не вспомню.", "One-off: goes into this month, and that’s it.")
+        case .income: L("Доход! Запишу — и итог месяца подрастёт.", "Income! Once it’s in, the month’s total goes up.")
         }
     }
 
     // MARK: - Форма
 
     private var form: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            PanelHeader(title: title, onBack: { model.pop() })
-
+        VStack(alignment: .leading, spacing: 14) {
             if original == nil {
                 SegmentedPicker(selection: $kind) { $0.title }
-                    .padding(.bottom, 4)
+            } else {
+                Text(kind.longTitle)
+                    .font(.bodyBold)
+                    .foregroundStyle(DS.Ink.primary)
             }
 
-            FormRow(L("Проект", "Project")) {
-                MenuPicker(
-                    selection: $projectId,
-                    options: store.projects.map { .init(value: Optional($0.id), title: $0.name, colorHex: $0.colorHex) }
-                )
-                .frame(maxWidth: 240)
-            }
-
-            FormRow(L("Название", "Name")) {
-                PanelTextField(namePlaceholder, text: $name, isFocused: focus == .name)
-                    .focused($focus, equals: .name)
-            }
-
-            FormRow(L("Сумма", "Amount")) {
-                HStack(spacing: DS.Spacing.xs) {
-                    // Цифры справа, значок валюты — внутри поля, как на чеке.
+            HStack(alignment: .top, spacing: 12) {
+                LabeledField(kind == .income ? L("Откуда", "From") : L("Название", "Name")) {
+                    PanelTextField(namePlaceholder, text: $name, isFocused: focus == .name)
+                        .focused($focus, equals: .name)
+                }
+                LabeledField(amountLabel) {
                     PanelTextField("0", text: $amountText, isFocused: focus == .amount, alignment: .trailing, suffix: currencySymbol)
                         .focused($focus, equals: .amount)
-                        .frame(width: 150)
-                    if kind == .recurring {
-                        Text(period == .monthly ? L("в месяц", "per month") : L("в год", "per year"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(DS.Ink.muted)
+                }
+                switch kind {
+                case .recurring:
+                    LabeledField(L("Где платить", "Where to pay")) {
+                        PanelTextField(L("my.selectel.ru", "console.hetzner.com"), text: $url, isFocused: focus == .url)
+                            .focused($focus, equals: .url)
                     }
+                case .oneOff, .income:
+                    LabeledField(L("Дата", "Date")) { DayStepper(date: $date) }
                 }
             }
 
-            if kind != .income {
-                FormRow(L("Ссылка", "Link")) {
-                    PanelTextField(L("где платить, например my.selectel.ru", "where to pay, e.g. console.hetzner.com"), text: $url, isFocused: focus == .url)
+            if kind == .recurring {
+                recurringRow
+            } else if kind == .oneOff {
+                LabeledField(L("Где платил", "Where you paid")) {
+                    PanelTextField(L("необязательно", "optional"), text: $url, isFocused: focus == .url)
                         .focused($focus, equals: .url)
                 }
+                .frame(maxWidth: 260)
             }
 
-            switch kind {
-            case .recurring:
-                recurringFields
-            case .oneOff, .income:
-                FormRow(L("Дата", "Date")) { DayStepper(date: $date) }
+            if original != nil, kind == .recurring {
+                editingRows
+            }
+
+            LabeledField(L("Проект", "Project")) {
+                ProjectChips(store: store, selected: $projectId)
             }
 
             if let errorText {
                 Label(errorText, systemImage: "exclamationmark.circle")
-                    .font(.system(size: 12))
+                    .font(.caption)
                     .foregroundStyle(DS.Money.negativeText)
             }
 
             HStack(spacing: DS.Spacing.xs) {
+                Text(footerHint)
+                    .font(.body)
+                    .foregroundStyle(DS.Ink.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: DS.Spacing.xs)
                 if original != nil {
                     DeleteButton(action: { delete() })
                 }
-                Spacer()
-                PillButton(L("Отмена", "Cancel")) { model.pop() }
-                PillButton(L("Сохранить", "Save"), prominent: true) { save() }
+                SecondaryButton(L("Отмена", "Cancel")) { model.pop() }
+                PrimaryButton(L("Записать", "Save")) { save() }
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.top, 4)
@@ -194,83 +215,97 @@ struct EntryFormView: View {
         .task {
             // Курсор в «Название» у новой записи; ждём, пока панель станет ключевой.
             guard original == nil else { return }
-            try? await Task.sleep(for: .milliseconds(80))
+            try? await Task.sleep(for: .milliseconds(120))
             focus = .name
         }
     }
 
-    @ViewBuilder
-    private var recurringFields: some View {
-        FormRow(L("Период", "Period")) {
-            SegmentedPicker(
-                selection: $period,
-                options: [
-                    .init(value: CostPeriod.monthly, title: L("Каждый месяц", "Monthly")),
-                    .init(value: CostPeriod.yearly, title: L("Раз в год", "Yearly")),
-                ],
-                fills: false
-            )
-        }
-        FormRow(period == .monthly ? L("Начислять с", "Starts in") : L("Первая оплата", "First payment")) {
-            MonthStepper(month: $startMonth)
-        }
-        if original == nil {
-            Hint(period == .monthly
-                ? L("Сохранишь один раз — дальше начисляется само.", "Save it once — it accrues by itself from then on.")
-                : L("Сохранишь один раз. В итогах — по 1/12 каждый месяц, в «Куда платить» — целиком в месяц продления.",
-                    "Save it once. Totals count 1/12 every month; “Where to pay” shows the full amount in the renewal month."))
-                .padding(.leading, Self.fieldInset)
-        } else {
-            if amountChanged {
-                FormRow(L("Новая сумма с", "New amount from")) { MonthStepper(month: $priceFrom) }
-                Hint(L("Месяцы раньше останутся со старой суммой.", "Earlier months keep the old amount."))
-                    .padding(.leading, Self.fieldInset)
+    /// Период, с какого месяца начислять и день списания.
+    private var recurringRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            LabeledField(L("Период", "Period")) {
+                SegmentedPicker(
+                    selection: $period,
+                    options: [
+                        .init(value: CostPeriod.monthly, title: L("В месяц", "Monthly")),
+                        .init(value: CostPeriod.yearly, title: L("В год", "Yearly")),
+                    ]
+                )
             }
-            FormRow(L("Активна", "Active")) {
+            LabeledField(period == .monthly ? L("Начислять с", "Starts in") : L("Первая оплата", "First payment")) {
+                MonthStepper(month: $startMonth)
+            }
+            LabeledField(L("День списания", "Due day")) {
+                DueDayStepper(day: $dueDay)
+            }
+        }
+    }
+
+    /// Правка регулярной: новая сумма «с месяца», выключение «по месяц».
+    @ViewBuilder
+    private var editingRows: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if amountChanged {
+                LabeledField(L("Новая сумма с", "New amount from")) { MonthStepper(month: $priceFrom) }
+            }
+            LabeledField(L("Активна", "Active")) {
                 Toggle(isOn: $isActive) { EmptyView() }
                     .toggleStyle(.panel)
                     .accessibilityLabel(L("Активна", "Active"))
+                    .frame(height: DS.Size.control)
             }
             if !isActive {
-                FormRow(L("Последний месяц", "Last month")) { MonthStepper(month: $lastMonth) }
-                Hint(period == .monthly
-                    ? L("По этот месяц включительно трата останется в истории.", "The cost stays in history up to and including this month.")
-                    : L("Последний месяц, когда ещё было продление. Уже оплаченный год дочислится.",
-                        "The last month with a renewal. The year already paid for keeps accruing."))
-                    .padding(.leading, Self.fieldInset)
+                LabeledField(L("Последний месяц", "Last month")) { MonthStepper(month: $lastMonth) }
             }
+        }
+        if amountChanged {
+            Hint(L("Месяцы раньше останутся со старой суммой.", "Earlier months keep the old amount."))
         }
     }
 
     private var noProjects: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            PanelHeader(title: L("Новая запись", "New entry"), onBack: { model.pop() })
-            Hint(L("Сначала заведи проект: траты и доходы привязываются к нему.", "Create a project first: costs and income belong to one."))
-            PillButton(L("Новый проект", "New project"), systemImage: "plus", prominent: true) {
-                model.replaceTop(with: .projectForm(editing: nil))
+            Text(L("Сначала проект", "A project first"))
+                .font(.bodyBold)
+                .foregroundStyle(DS.Ink.primary)
+            Hint(L("Траты и доходы привязываются к проекту — заведи первый.", "Costs and income belong to a project — create the first one."))
+            HStack {
+                SecondaryButton(L("Отмена", "Cancel")) { model.pop() }
+                PrimaryButton(L("Новый проект", "New project"), systemImage: "plus") {
+                    model.replaceTop(with: .projectForm(editing: nil))
+                }
             }
         }
     }
 
-    /// Подсказки — под колонкой полей, а не под подписями.
-    private static let fieldInset = DS.Size.formLabel + DS.Spacing.xs
-
     // MARK: - Подписи
-
-    private var title: String {
-        switch original {
-        case nil: L("Новая запись", "New entry")
-        case .recurring: EntryKind.recurring.title
-        case .oneOff: EntryKind.oneOff.title
-        case .income: EntryKind.income.title
-        }
-    }
 
     private var namePlaceholder: String {
         switch kind {
-        case .recurring: L("например, Сервер Selectel", "e.g. Hetzner server")
-        case .oneOff: L("например, Реклама в Telegram", "e.g. Ads on X")
-        case .income: L("например, Подписки", "e.g. Subscriptions")
+        case .recurring: L("GPU сервер", "Hetzner server")
+        case .oneOff: L("Реклама в Telegram", "Ads on X")
+        case .income: L("Подписки", "Subscriptions")
+        }
+    }
+
+    private var amountLabel: String {
+        switch kind {
+        case .recurring: period == .monthly ? L("В месяц, \(currencySymbol)", "Per month, \(currencySymbol)") : L("В год, \(currencySymbol)", "Per year, \(currencySymbol)")
+        case .oneOff, .income: L("Сумма", "Amount")
+        }
+    }
+
+    /// «каждый месяц · с 1 ноября», «раз в год · с октября», «15 октября».
+    private var footerHint: String {
+        switch kind {
+        case .recurring:
+            let from = period == .monthly
+                ? L("с 1 \(RussianWords.monthGenitive(startMonth.month))", "from \(Words.monthName(startMonth.month)) 1")
+                : L("с \(RussianWords.monthGenitive(startMonth.month))", "from \(Words.monthName(startMonth.month))")
+            let each = period == .monthly ? L("каждый месяц", "every month") : L("раз в год, в итоге по 1/12", "yearly, 1/12 in totals")
+            return "\(each) · \(from)"
+        case .oneOff, .income:
+            return DayStepper.text(date)
         }
     }
 
@@ -312,6 +347,7 @@ struct EntryFormView: View {
                 cost.name = title
                 cost.url = link
                 cost.period = period
+                cost.dueDay = dueDay
                 if cost.startMonth != startMonth {
                     cost = cost.withStartMonth(startMonth)
                 }
@@ -321,7 +357,7 @@ struct EntryFormView: View {
                 cost.endMonth = isActive ? nil : max(lastMonth, cost.startMonth)
                 saved = store.save(cost)
             } else {
-                saved = store.save(RecurringCost(projectId: projectId, name: title, url: link, period: period, startMonth: startMonth, amount: amount))
+                saved = store.save(RecurringCost(projectId: projectId, name: title, url: link, period: period, startMonth: startMonth, amount: amount, dueDay: dueDay))
             }
         case .oneOff:
             if case .oneOff(var cost)? = original {
@@ -345,7 +381,10 @@ struct EntryFormView: View {
                 saved = store.save(Income(projectId: projectId, name: title, amount: amount, date: day))
             }
         }
-        if saved { model.pop() }
+        if saved {
+            model.onSound?(.pencil)
+            model.pop()
+        }
     }
 
     private func delete() {
@@ -357,5 +396,70 @@ struct EntryFormView: View {
         case nil: return
         }
         if deleted { model.pop() }
+    }
+}
+
+/// Чипы проектов с мини-лицом 24: выбранный — рамка цвета настроения α 0.6, фон α 0.12.
+struct ProjectChips: View {
+    let store: MoneyStore
+    @Binding var selected: UUID?
+
+    var body: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(store.glances) { glance in
+                ProjectChipButton(glance: glance, isSelected: glance.project.id == selected) { selected = glance.project.id }
+            }
+        }
+    }
+}
+
+private struct ProjectChipButton: View {
+    let glance: ProjectGlance
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let tone = FaceDirector.tone(glance)
+        Button(action: action) {
+            HStack(spacing: 7) {
+                MiniFace(.project(glance.mood, colorHex: glance.project.colorHex, mini: true), size: 24)
+                    .frame(width: 28, height: 22)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.black))
+                Text(glance.project.name)
+                    .font(.bodySemibold)
+                    .foregroundStyle(DS.Ink.primary)
+                    .lineLimit(1)
+            }
+            .padding(.leading, 5)
+            .padding(.trailing, 12)
+            .frame(height: DS.Size.control)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).fill(isSelected ? tone.opacity(0.12) : hovering ? DS.Surface.pillHover : DS.Surface.input))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).stroke(isSelected ? tone.opacity(0.6) : DS.Surface.inputBorder, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.field))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// «‹ 22-го ›» или «—»: день списания, по которому приходит «Пора платить».
+struct DueDayStepper: View {
+    @Binding var day: Int?
+
+    var body: some View {
+        ValueStepper(
+            text: day.map { L("\($0)-го", "\(Words.ordinal($0))") } ?? L("не задан", "not set"),
+            minWidth: 88, previousHelp: L("Днём раньше", "A day earlier"), nextHelp: L("Днём позже", "A day later"),
+            onPrevious: { step(-1) }, onNext: { step(1) }
+        )
+    }
+
+    /// По кругу: — , 1, 2 … 28, —.
+    private func step(_ delta: Int) {
+        let current = day ?? 0
+        let next = (current + delta + 29) % 29
+        day = next == 0 ? nil : next
     }
 }

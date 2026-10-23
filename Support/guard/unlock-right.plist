@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Право «открыть ключи» в базе авторизации macOS (security authorizationdb).
+  Пользователь из группы admin подтверждает Touch ID или паролем — каждый раз
+  заново (timeout 0), без общего кэша с другими окнами (shared false).
+-->
+<plist version="1.0">
+<dict>
+    <key>class</key>
+    <string>user</string>
+    <key>group</key>
+    <string>admin</string>
+    <key>shared</key>
+    <false/>
+    <key>timeout</key>
+    <integer>0</integer>
+    <key>allow-root</key>
+    <false/>
+    <key>authenticate-user</key>
+    <true/>
+    <key>session-owner</key>
+    <false/>
+    <key>comment</key>
+    <string>Radarchik: open protected keys (Guard, SPEC §3b)</string>
+    <key>version</key>
+    <integer>1</integer>
+</dict>
+</plist>

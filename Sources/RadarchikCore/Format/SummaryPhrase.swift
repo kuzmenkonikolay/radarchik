@@ -111,3 +111,45 @@ public enum SummaryPhrase {
         return text + "."
     }
 }
+
+// MARK: - Главная (дизайн v2)
+
+extension SummaryPhrase {
+    /// Одна фраза под крупной цифрой на главной: кто проседает и в минусе, и когда
+    /// итог. Месяц ещё идёт, поэтому про закрытый месяц здесь не говорим — только
+    /// про проблемы и про то, что итог будет 1-го.
+    /// «„API для видео“ проседает, „Лендинг“ третий месяц в минусе. Итог подведу 1-го.»
+    public static func home(month: YearMonth, ledger: Ledger) -> String {
+        guard !ledger.activeProjects.isEmpty else {
+            return L("Пусто. Добавь первый проект — я посчитаю.", "Empty. Add your first project and I’ll do the counting.")
+        }
+        let glances = MoneyEngine.glances(currentMonth: month, ledger: ledger).filter { !$0.isFirstMonth }
+        var sentences: [String] = []
+        if glances.count > 1, let problems = problemsSentence(glances) {
+            sentences.append(problems)
+        } else if let only = glances.first, glances.count == 1 {
+            let closed = Words.monthName(month.previous.month)
+            sentences.append(L("\(closed) закрыли \(describe(only.mood ?? .stable, net: only.net)).", "\(closed) closed \(describe(only.mood ?? .stable, net: only.net))."))
+        }
+        let name = Words.monthName(month.month)
+        sentences.append(sentences.isEmpty
+            ? L("\(name) ещё идёт — итог подведу 1-го.", "\(name) is still on — I’ll sum up on the 1st.")
+            : L("Итог подведу 1-го.", "I’ll sum up on the 1st."))
+        return sentences.joined(separator: " ")
+    }
+
+    /// Чип «К оплате 30,5к · больше всего Selectel»; nil — платить нечего.
+    public static func payChip(_ groups: [PaymentGroup]) -> String? {
+        let totals = Payments.totals(of: groups)
+        guard let primary = totals.max(by: { $0.amount < $1.amount })?.currency else { return nil }
+        // Одна валюта — без значка: короче, а валюта и так на экране.
+        var text = L("К оплате ", "Due ") + totals.map { totals.count == 1 ? MoneyFormat.bare(MoneyFormat.compact($0.amount, $0.currency)) : MoneyFormat.compact($0.amount, $0.currency) }.joined(separator: " · ")
+        let named = groups.filter { $0.id != Payments.otherGroupID }
+        if groups.count == 1, let only = named.first {
+            text += L(" · всё в \(only.title)", " · all to \(only.title)")
+        } else if groups.count > 1, let top = named.first, top.totals.contains(where: { $0.currency == primary }) {
+            text += L(" · больше всего \(top.title)", " · mostly \(top.title)")
+        }
+        return text
+    }
+}

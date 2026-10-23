@@ -1,34 +1,30 @@
 import SwiftUI
 import RadarchikCore
 
-/// «Что записано сегодня» — сводка лога с полуночи. Нужна, чтобы проверить,
+/// Вкладка «Сегодня» — сводка лога с полуночи. Нужна, чтобы проверить,
 /// что пишется понятное и без лишнего (критерий готовности этапа 3).
-/// Из этой же сводки на этапе 4 будет собираться разбор дня.
-struct TodayView: View {
-    let model: NotchViewModel
-    let tracker: ActivityTracker
+/// Из этой же сводки на этапе 4 собирается разбор дня. Сколько за компьютером
+/// и где больше всего — говорит облачко.
+struct TodayTab: View {
+    /// Считается один раз при открытии вкладки: запрос к базе, а не живые данные.
+    private let summary: DaySummary
 
-    @State private var summary: DaySummary?
+    init(tracker: ActivityTracker) {
+        summary = tracker.todaySummary()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            PanelHeader(title: L("Сегодня", "Today"), onBack: { model.pop() }) {
-                if let summary, summary.activeSeconds > 0 {
-                    Text(L("за компьютером ", "at the computer ") + DurationFormat.short(summary.activeSeconds))
-                        .font(.system(size: 11))
-                        .foregroundStyle(DS.Ink.secondary)
-                }
-            }
-            if let summary {
-                if summary.apps.isEmpty && summary.commands.isEmpty && summary.callCount == 0 {
-                    Hint(L("Сегодня пока ничего не записано. Включи наблюдение и поработай немного — здесь появятся приложения, сайты и команды.",
-                           "Nothing logged today yet. Turn on activity tracking and work for a bit — apps, sites and commands will show up here."))
-                } else {
-                    FitOrScroll(maxHeight: 600) { sections(summary) }
-                }
+            Text(L("Сегодня", "Today"))
+                .font(.bodyBold)
+                .foregroundStyle(DS.Ink.primary)
+            if summary.apps.isEmpty && summary.commands.isEmpty && summary.callCount == 0 {
+                Hint(L("Поработай немного — здесь появятся приложения, сайты и команды терминала.",
+                       "Work for a bit — apps, sites and terminal commands will show up here."))
+            } else {
+                FitOrScroll(maxHeight: 420) { sections(summary) }
             }
         }
-        .task { summary = tracker.todaySummary() }
     }
 
     private func sections(_ summary: DaySummary) -> some View {
@@ -138,8 +134,8 @@ private struct BarRow: View {
             }
             .font(.system(size: 12))
             Capsule()
-                .fill(DS.Chart.bar)
-                .frame(height: 4)
+                .fill(DS.Chart.bar.opacity(0.8))
+                .frame(height: 3)
                 .frame(maxWidth: .infinity)
                 .scaleEffect(x: max(min(fraction, 1), 0.02), y: 1, anchor: .leading)
         }

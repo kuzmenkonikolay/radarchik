@@ -40,6 +40,25 @@ enum Ease {
         return 1 - decay * (cos(omegaD * elapsed) + (zeta * omega / omegaD) * sin(omegaD * elapsed))
     }
 
+    /// Кривая Безье, как `Animation.timingCurve(x1, y1, x2, y2)`: время 0…1 → путь 0…1.
+    /// x(s) решаем Ньютоном, потом берём y(s).
+    static func bezier(_ x: Double, _ curve: (x1: Double, y1: Double, x2: Double, y2: Double)) -> Double {
+        let x = clamp01(x)
+        func point(_ s: Double, _ p1: Double, _ p2: Double) -> Double {
+            3 * (1 - s) * (1 - s) * s * p1 + 3 * (1 - s) * s * s * p2 + s * s * s
+        }
+        func slope(_ s: Double, _ p1: Double, _ p2: Double) -> Double {
+            3 * (1 - s) * (1 - s) * p1 + 6 * (1 - s) * s * (p2 - p1) + 3 * s * s * (1 - p2)
+        }
+        var s = x
+        for _ in 0..<8 {
+            let d = slope(s, curve.x1, curve.x2)
+            guard abs(d) > 1e-6 else { break }
+            s = min(max(s - (point(s, curve.x1, curve.x2) - x) / d, 0), 1)
+        }
+        return point(s, curve.y1, curve.y2)
+    }
+
     /// Туда пружиной в `start`, обратно пружиной в `end` (раскрыть и свернуть).
     static func there(andBack t: Double, start: Double, end: Double, response: Double, damping: Double, backDamping: Double = 0.9) -> Double {
         if t < end { return spring(t - start, response: response, damping: damping) }
@@ -52,19 +71,6 @@ func lerp(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat { a + (b - a) * CG
 func lerp(_ a: Double, _ b: Double, _ t: Double) -> Double { a + (b - a) * t }
 func lerp(_ a: CGSize, _ b: CGSize, _ t: Double) -> CGSize { CGSize(width: lerp(a.width, b.width, t), height: lerp(a.height, b.height, t)) }
 func lerp(_ a: CGPoint, _ b: CGPoint, _ t: Double) -> CGPoint { CGPoint(x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t)) }
-
-extension NotchShape {
-    /// Фигура между двумя состояниями — как её рисует пружина в приложении.
-    static func lerp(_ a: NotchShape, _ b: NotchShape, _ t: Double) -> NotchShape {
-        NotchShape(
-            topRadius: Radarchik.lerp(a.topRadius, b.topRadius, t),
-            bandRadius: Radarchik.lerp(a.bandRadius, b.bandRadius, t),
-            bandHeight: Radarchik.lerp(a.bandHeight, b.bandHeight, t),
-            chinWidth: Radarchik.lerp(a.chinWidth, b.chinWidth, t),
-            chinRadius: Radarchik.lerp(a.chinRadius, b.chinRadius, t)
-        )
-    }
-}
 
 /// Путь по точкам во времени: между ключами — плавно (`Ease.inOut`).
 struct Keyframes<Value> {

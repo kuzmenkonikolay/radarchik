@@ -15,18 +15,18 @@ struct ClaudeSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             PanelHeader(title: L("Разбор дня и Claude", "Daily review & Claude"), onBack: { model.pop() })
-            FitOrScroll(maxHeight: 600) {
+            FitOrScroll(maxHeight: 420) {
                 VStack(alignment: .leading, spacing: DS.Spacing.sm) {
                     key
                     FormRow(L("Модель", "Model")) {
                         SegmentedPicker(selection: $settings.claudeModel) { $0.title }
                     }
-                    Hint(settings.claudeModel.note).padding(.leading, DS.Size.formLabel + DS.Spacing.xs)
+                    Hint(settings.claudeModel.note).padding(.leading, FormRow<EmptyView>.labelWidth + DS.Spacing.xs)
 
                     FormRow(L("Время разбора", "Review time")) { HourStepper(hour: $settings.reviewHour) }
                     Hint(L("Если в это время мак спал — разберу при первой активности после.",
                            "If the Mac was asleep then, I’ll review at the first activity after."))
-                        .padding(.leading, DS.Size.formLabel + DS.Spacing.xs)
+                        .padding(.leading, FormRow<EmptyView>.labelWidth + DS.Spacing.xs)
 
                     FormRow(L("Заголовки окон", "Window titles")) {
                         Toggle(isOn: $settings.sendWindowTitles) {
@@ -41,7 +41,7 @@ struct ClaudeSettingsView: View {
                             "The 15 longest-viewed titles are sent. Tips get more precise with them. Excluded and incognito windows are never sent.")
                         : L("Заголовки не уходят: только приложения, сайты и шаблоны команд.",
                             "No titles are sent: only apps, sites and command templates."))
-                        .padding(.leading, DS.Size.formLabel + DS.Spacing.xs)
+                        .padding(.leading, FormRow<EmptyView>.labelWidth + DS.Spacing.xs)
 
                     proxy
                 }
@@ -73,7 +73,7 @@ struct ClaudeSettingsView: View {
         if !review.hasAPIKey {
             Hint(L("Ключ создаётся на console.anthropic.com → API Keys. Хранится только в Связке ключей этого мака.",
                    "Create a key at console.anthropic.com → API Keys. It’s stored only in this Mac’s Keychain."))
-                .padding(.leading, DS.Size.formLabel + DS.Spacing.xs)
+                .padding(.leading, FormRow<EmptyView>.labelWidth + DS.Spacing.xs)
         }
     }
 
@@ -90,10 +90,10 @@ struct ClaudeSettingsView: View {
             }
         }
         if let status = review.connectionStatus {
-            Hint(status).padding(.leading, DS.Size.formLabel + DS.Spacing.xs)
+            Hint(status).padding(.leading, FormRow<EmptyView>.labelWidth + DS.Spacing.xs)
         }
         Hint(proxyHint)
-            .padding(.leading, DS.Size.formLabel + DS.Spacing.xs)
+            .padding(.leading, FormRow<EmptyView>.labelWidth + DS.Spacing.xs)
     }
 
     /// С адресом запросы идут только через прокси; пусто — напрямую.

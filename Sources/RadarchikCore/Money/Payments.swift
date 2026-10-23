@@ -103,3 +103,61 @@ public enum Payments {
         }
     }
 }
+
+// MARK: - «Пора платить»
+
+/// Приближающееся списание регулярной траты — алерт «Пора платить» (дизайн v2, 2026-10-20).
+/// Приходит за `within` дней до дня списания; день задаётся у траты (`dueDay`).
+public struct PayReminder: Identifiable, Hashable, Sendable {
+    public let costId: UUID
+    public let costName: String
+    public let projectName: String
+    /// Кому платить: «Selectel» по домену ссылки, без ссылки — название траты.
+    public let payee: String
+    public let url: URL?
+    public let amount: Int64
+    public let currency: Currency
+    public let dueDate: LocalDate
+    /// 0 — сегодня, 1 — завтра…
+    public let daysLeft: Int
+
+    /// Одна трата — одно напоминание в месяц.
+    public var id: String { "\(costId.uuidString)|\(dueDate.yearMonth.stringValue)" }
+
+    public init(costId: UUID, costName: String, projectName: String, payee: String, url: URL?, amount: Int64, currency: Currency, dueDate: LocalDate, daysLeft: Int) {
+        self.costId = costId
+        self.costName = costName
+        self.projectName = projectName
+        self.payee = payee
+        self.url = url
+        self.amount = amount
+        self.currency = currency
+        self.dueDate = dueDate
+        self.daysLeft = daysLeft
+    }
+}
+
+extension Payments {
+    /// Списания в ближайшие `within` дней (включая сегодня), ближайшие первыми.
+    /// Смотрим на текущий и следующий месяц: 30-го числа «через 2 дня» — уже в следующем.
+    public static func upcoming(today: LocalDate, within days: Int, ledger: Ledger, calendar: Calendar = .current) -> [PayReminder] {
+        let projects = Dictionary(uniqueKeysWithValues: ledger.activeProjects.map { ($0.id, $0) })
+        var result: [PayReminder] = []
+        for cost in ledger.recurringCosts {
+            guard let dueDay = cost.dueDay, let project = projects[cost.projectId] else { continue }
+            for month in [today.yearMonth, today.yearMonth.next] {
+                guard let amount = cost.due(in: month) else { continue }
+                let due = LocalDate(year: month.year, month: month.month, day: min(dueDay, LocalDate.daysIn(year: month.year, month: month.month)))
+                let left = calendar.dateComponents([.day], from: today.date(calendar: calendar), to: due.date(calendar: calendar)).day ?? 0
+                guard (0...days).contains(left) else { continue }
+                let url = normalizedURL(cost.url)
+                result.append(PayReminder(
+                    costId: cost.id, costName: cost.name, projectName: project.name,
+                    payee: payeeKey(for: cost.url).map(payeeTitle(forKey:)) ?? cost.name,
+                    url: url, amount: amount, currency: project.currency, dueDate: due, daysLeft: left
+                ))
+            }
+        }
+        return result.sorted { ($0.daysLeft, $0.costName) < ($1.daysLeft, $1.costName) }
+    }
+}

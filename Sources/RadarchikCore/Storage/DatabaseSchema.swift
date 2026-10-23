@@ -1,7 +1,8 @@
 import Foundation
 
 /// Схема базы и миграции — одни на все репозитории: деньги (v1), наблюдение (v2),
-/// советы (v3) и ресурсы мака (v4).
+/// советы (v3), ресурсы мака (v4), «Защита» (v5), день списания у трат (v6)
+/// и «Сетевой надзор» (v7).
 /// Номер версии лежит в PRAGMA user_version. Миграции только добавляются,
 /// старые не меняются: у пользователя уже есть база версии 1.
 public enum DatabaseSchema {
@@ -19,7 +20,55 @@ public enum DatabaseSchema {
         }
     }
 
-    private static let migrations = [v1Money, v2Activity, v3Reviews, v4Resources]
+    private static let migrations = [v1Money, v2Activity, v3Reviews, v4Resources, v5Guard, v6DueDay, v7Network]
+
+    /// v7 («Сетевой надзор», 2026-10-22): кто куда ходил — пара «источник → адрес»
+    /// со счётчиком, чтобы говорить только о новом. Источник — скрипт с путём или
+    /// инструмент агента, адрес — имя из DNS или IP. Чистится вместе с журналом (60 дней).
+    private static let v7Network = """
+        CREATE TABLE network_seen (
+            identity TEXT NOT NULL,          -- net|script|/opt/homebrew/bin/node /…/install.js
+            name TEXT NOT NULL,              -- «node install.js», «Claude Code · curl»
+            host TEXT NOT NULL,              -- имя из DNS или адрес
+            project TEXT,                    -- папка репозитория, где это случилось
+            first_seen REAL NOT NULL,
+            last_seen REAL NOT NULL,
+            count INTEGER NOT NULL DEFAULT 1,
+            level TEXT NOT NULL DEFAULT 'info',
+            PRIMARY KEY (identity, host)
+        );
+        CREATE INDEX network_seen_last ON network_seen(last_seen);
+        """
+
+    /// v6 (дизайн v2, 2026-10-20): день месяца, когда списывают регулярную трату, —
+    /// по нему за пару дней приходит алерт «Пора платить». NULL — день не задан.
+    private static let v6DueDay = """
+        ALTER TABLE recurring_costs ADD COLUMN due_day INTEGER;
+        """
+
+    /// v5: «Защита» (SPEC §3б). Журнал того, что заметил Радарчик (процессы,
+    /// проверка кода, настройки Claude), с твоими ответами — 60 дней,
+    /// и список «разрешать всегда» — бессрочно. Секретов здесь нет: командные
+    /// строки и куски кода вычищаются до записи.
+    private static let v5Guard = """
+        CREATE TABLE guard_events (
+            id INTEGER PRIMARY KEY,
+            kind TEXT NOT NULL,              -- process | code | audit | keys
+            level TEXT NOT NULL,             -- info | warning | critical
+            at REAL NOT NULL,
+            title TEXT NOT NULL,             -- фраза Радарчика
+            detail TEXT,                     -- командная строка или файл:строка, без секретов
+            allow_key TEXT,                  -- угроза|программа|родитель — для «Разрешать всегда»
+            status TEXT NOT NULL DEFAULT 'active',  -- active | killed | allowedOnce | allowedAlways | dismissed | resolved | logged
+            status_changed_at REAL
+        );
+        CREATE INDEX guard_events_at ON guard_events(at);
+        CREATE INDEX guard_events_allow_key ON guard_events(allow_key);
+        CREATE TABLE guard_allowed (
+            allow_key TEXT PRIMARY KEY,
+            created_at REAL NOT NULL
+        );
+        """
 
     /// v4 (этап 6): ресурсы мака. Сводки по приложениям за пятиминутки
     /// и мака по минутам живут 8 дней (нормы — за 7), тревоги — 60 дней.

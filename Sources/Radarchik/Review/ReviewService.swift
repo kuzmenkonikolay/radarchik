@@ -19,10 +19,14 @@ final class ReviewService {
     private(set) var tips: [Tip] = []
     private(set) var latestReview: StoredReview?
     private(set) var isRunning = false
+    /// Где сейчас разбор — шаги экрана F; nil — не идёт.
+    private(set) var progress: ReviewProgress?
     private(set) var hasAPIKey = false
     private(set) var connectionStatus: String?
     private(set) var isCheckingConnection = false
     var lastError: String?
+    /// «Что это?» — тем же ключом и маршрутом, что разбор.
+    let explain: ExplainService
 
     private let reviews: ReviewRepository
     private let activity: ActivityRepository
@@ -36,6 +40,7 @@ final class ReviewService {
         self.activity = activity
         self.settings = settings
         self.tracker = tracker
+        explain = ExplainService(settings: settings)
     }
 
     func start() {
@@ -155,6 +160,12 @@ final class ReviewService {
             lastError = Self.badProxyAddress
             return
         }
+        isRunning = true
+        progress = ReviewProgress(step: 1, summary: nil)
+        defer {
+            isRunning = false
+            progress = nil
+        }
         let period = currentPeriod(now: now)
         let input = makeInput(period: period, now: now)
         // Тихий день: запрос не тратим, ждём следующего вечера.
@@ -162,14 +173,16 @@ final class ReviewService {
             settings.lastReviewAttemptAt = now
             return
         }
+        let apps = Words.plural(input.summary.apps.count, ru: ("приложение", "приложения", "приложений"), en: ("app", "apps"))
+        progress = ReviewProgress(step: 2, summary: "\(DurationFormat.short(input.summary.activeSeconds)), \(input.summary.apps.count) \(apps)")
 
-        isRunning = true
-        defer { isRunning = false }
         let model = settings.claudeModel
         let prompt = ReviewPrompt.userMessage(input)
         do {
             let request = try ClaudeAPI.reviewRequest(apiKey: apiKey, model: model, system: ReviewPrompt.system, user: prompt)
+            progress?.step = 3
             let (data, status) = try await ClaudeClient(route: route).send(request)
+            progress?.step = 4
             let result = try ClaudeAPI.parseReview(data: data, statusCode: status, model: model)
             _ = try reviews.save(periodStart: period.lowerBound, periodEnd: period.upperBound, createdAt: now, prompt: prompt, result: result)
             settings.lastReviewAttemptAt = now
@@ -193,6 +206,12 @@ final class ReviewService {
     func loadForPreview() {
         reload()
         hasAPIKey = true
+    }
+
+    /// Для листа экранов: экран F с нужным шагом.
+    func previewProgress(_ value: ReviewProgress?) {
+        progress = value
+        isRunning = value != nil
     }
 
     private func reload() {
@@ -257,4 +276,11 @@ final class ReviewService {
         }
         return seconds.sorted { $0.value > $1.value }.prefix(limit).map(\.key)
     }
+}
+
+/// Шаг разбора для экрана F: 1 — собираю день, 2 — ищу повторы, 3 — спрашиваю Claude, 4 — собираю советы.
+struct ReviewProgress: Equatable {
+    var step: Int
+    /// «8 ч 40 мин, 23 приложения» — когда день собран.
+    var summary: String?
 }

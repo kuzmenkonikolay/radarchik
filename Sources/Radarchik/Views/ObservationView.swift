@@ -1,10 +1,10 @@
 import SwiftUI
 import RadarchikCore
 
-/// Экран «Наблюдение»: включить или выключить, что пишется и что нет,
-/// разрешения macOS, подключение терминала, исключения. Здесь же переход
-/// к «Что записано сегодня».
-struct ObservationView: View {
+/// Вкладка «Наблюдение»: включить или выключить, что пишется и что нет,
+/// разрешения macOS, подключение терминала, исключения. Что сейчас пишется —
+/// говорит облачко; что записано за день — вкладка «Сегодня».
+struct ObservationTab: View {
     let model: NotchViewModel
     let tracker: ActivityTracker
     @Bindable var settings: AppSettings
@@ -18,7 +18,7 @@ struct ObservationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             PanelHeader(title: L("Наблюдение", "Activity tracking"), onBack: { model.pop() })
-            FitOrScroll(maxHeight: 600) { content }
+            FitOrScroll(maxHeight: 400) { content }
         }
         // Браузеры показываем сразу, даже пока наблюдение выключено.
         .task { tracker.refreshAutomation() }
@@ -27,61 +27,24 @@ struct ObservationView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.md) {
             mainSwitch
-            privacy
             permissions
             terminal
             exclusions
-            PillButton(L("Что записано сегодня", "What’s logged today"), systemImage: "list.bullet.rectangle") { model.push(.today) }
         }
     }
 
     // MARK: - Главный переключатель
 
-    /// Крупно и с подписью: маленький тумблер в заголовке легко не заметить (скриншот 2026-10-18).
+    /// Одной строкой с тумблером: о том, что пишется и что нет, — ниже мелко.
     private var mainSwitch: some View {
-        let isOn = settings.observationEnabled
-        return HStack(spacing: DS.Spacing.sm) {
-            Image(systemName: isOn ? "eye" : "eye.slash")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isOn ? DS.Money.positiveText : DS.Ink.muted)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(isOn ? L("Наблюдение включено", "Activity tracking is on") : L("Наблюдение выключено", "Activity tracking is off"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(DS.Ink.primary)
-                Text(isOn
-                    ? L("Записываю день — из него будут советы.", "Logging the day — tips will come from it.")
-                    : L("Ничего не пишу, только замечаю звонки, чтобы прятать цифры.", "Logging nothing, only noticing calls to hide the numbers."))
-                    .font(.system(size: 11))
-                    .foregroundStyle(DS.Ink.secondary)
-            }
-            Spacer(minLength: DS.Spacing.xs)
-            Toggle(isOn: Binding(
-                get: { settings.observationEnabled },
-                set: { tracker.setEnabled($0) }
-            )) { EmptyView() }
-            .toggleStyle(.panel)
-            .accessibilityLabel(L("Наблюдать", "Track activity"))
+        PanelGroup {
+            ToggleRow(
+                L("Наблюдать за днём", "Track the day"),
+                detail: L("Приложения, заголовки окон, адреса вкладок, команды без секретов, копирования и звонки. Всё остаётся на маке 30 дней.",
+                          "Apps, window titles, tab addresses, commands without secrets, copying and calls. Everything stays on this Mac for 30 days."),
+                isOn: Binding(get: { settings.observationEnabled }, set: { tracker.setEnabled($0) })
+            )
         }
-        .padding(DS.Spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: DS.Radius.card)
-                .fill(DS.Surface.card)
-                .stroke(isOn ? DS.Surface.hairline : DS.antenna(.yellow).opacity(0.6))
-        )
-    }
-
-    // MARK: - Что пишу и что нет
-
-    private var privacy: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Hint(L("Пишу: приложения и время в них, заголовки окон, адреса вкладок без параметров, команды терминала без секретов, факт копирования, время звонков, запуск приложений.",
-                   "Logged: apps and time in them, window titles, tab addresses without parameters, terminal commands without secrets, the fact of copying, call time, app launches."))
-            Hint(L("Не пишу: экран, нажатия клавиш, содержимое буфера, звук. Ничего из исключений. Всё остаётся на этом маке и хранится 30 дней.",
-                   "Never logged: the screen, keystrokes, clipboard contents, audio. Nothing from exclusions. Everything stays on this Mac and is kept for 30 days."))
-        }
-        .padding(DS.Spacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: DS.Radius.card).fill(DS.Surface.card))
     }
 
     // MARK: - Разрешения
@@ -142,7 +105,7 @@ struct ObservationView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(DS.Spacing.xs)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(DS.Surface.field))
+                    .background(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).fill(DS.Surface.input))
                 PillButton(copied ? L("Готово", "Copied") : L("Скопировать", "Copy"), systemImage: copied ? "checkmark" : "doc.on.doc") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(ShellHook.sourceLine, forType: .string)
@@ -185,7 +148,7 @@ struct ObservationView: View {
                 }
                 .padding(.horizontal, 12)
                 .frame(minHeight: 36)
-                .background(RoundedRectangle(cornerRadius: DS.Radius.card).fill(DS.Surface.card))
+                .background(RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous).fill(DS.Surface.group))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -312,7 +275,7 @@ private struct PermissionRow<Actions: View>: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(DS.Surface.card))
+        .background(RoundedRectangle(cornerRadius: DS.Radius.field, style: .continuous).fill(DS.Surface.group))
     }
 }
 
@@ -336,6 +299,6 @@ private struct RemovableChip: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Capsule().fill(DS.Surface.card))
+        .background(Capsule().fill(DS.Surface.chip))
     }
 }

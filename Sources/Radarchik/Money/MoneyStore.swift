@@ -18,6 +18,8 @@ final class MoneyStore {
     var lastError: String?
     /// Короткое событие для Радарчика (поймал монетку), сбрасывается само.
     private(set) var mascotEvent: MascotEvent?
+    /// Только что добавленный доход — по нему раскрывается алерт «Пришли деньги» (D).
+    private(set) var news: IncomeNews?
 
     private let repository: LedgerRepository
     @ObservationIgnored private var eventResetTask: Task<Void, Never>?
@@ -49,8 +51,9 @@ final class MoneyStore {
     /// Чипы проектов: итог и настроение закрытого месяца (у нового — текущий «пока»).
     var glances: [ProjectGlance] { MoneyEngine.glances(currentMonth: month, ledger: ledger) }
     var closedSummaries: [CurrencySummary] { MoneyEngine.closedSummaries(currentMonth: month, ledger: ledger) }
-    /// Общее настроение закрытого месяца; nil — закрытых месяцев ещё нет (антенка тусклая).
-    var overallMood: Mood? { MoneyEngine.overallMood(closedSummaries) }
+    /// Общее настроение для антенки и лица: по закрытому месяцу, а пока ни один
+    /// не закрыт — по текущему «пока» (2026-10-19); nil — данных нет вовсе.
+    var overallMood: Mood? { MoneyEngine.overallMood(currentMonth: month, ledger: ledger) }
     /// Итог текущего месяца «пока» по всем проектам — левое крыло чёлки.
     /// В начале месяца в минусе: траты начислены, доходы ещё не пришли.
     var monthTotals: [CurrencyAmount] { MoneyEngine.monthTotals(month: month, ledger: ledger) }
@@ -61,6 +64,13 @@ final class MoneyStore {
     var dueTotals: [CurrencyAmount] { Payments.totals(of: payments) }
     /// Фраза Радарчика при наведении (о закрытом месяце и платежах).
     var phrase: String { SummaryPhrase.make(month: month, ledger: ledger) }
+    /// Фраза под крупной цифрой на главной: кто проседает и когда итог.
+    var homePhrase: String { SummaryPhrase.home(month: month, ledger: ledger) }
+
+    /// Итог текущего месяца «пока» по одному проекту — цифра в его пилюле.
+    func monthNet(of projectId: UUID) -> Int64 {
+        MoneyEngine.figures(projectId: projectId, month: month, ledger: ledger).net
+    }
 
     // MARK: - Отчёты для экрана проекта
 
@@ -138,8 +148,16 @@ final class MoneyStore {
     @discardableResult
     func save(_ income: Income) -> Bool {
         let isNew = !ledger.incomes.contains { $0.id == income.id }
-        let saved = perform({ try repository.save(income) }) { Self.upsert(income, into: &$0.incomes) }
-        if saved && isNew { emit(.incomeAdded) }
+        let currency = ledger.project(id: income.projectId)?.currency
+        let before = monthTotals.first { $0.currency == currency }?.amount ?? 0
+        let saved = perform(addsIncome: isNew, { try repository.save(income) }) { Self.upsert(income, into: &$0.incomes) }
+        // Новый доход этого месяца — алерт «Пришли деньги» с новым итогом месяца.
+        if saved, isNew, let currency, let project = ledger.project(id: income.projectId), income.date.yearMonth == month {
+            news = IncomeNews(
+                id: income.id, amount: income.amount, currency: currency, projectName: project.name, title: income.name,
+                before: before, after: monthTotals.first { $0.currency == currency }?.amount ?? income.amount, month: month
+            )
+        }
         return saved
     }
 
@@ -151,16 +169,23 @@ final class MoneyStore {
     // MARK: - Внутреннее
 
     /// Сначала база, потом память: если запись не прошла, экран не врёт.
-    private func perform(_ write: () throws -> Void, apply: (inout Ledger) -> Void) -> Bool {
+    /// Потом Радарчик реагирует по очереди: новый доход — ловит монетку,
+    /// итог месяца вырос (доход, убрал или удешевил трату) — щурится от радости.
+    private func perform(addsIncome: Bool = false, _ write: () throws -> Void, apply: (inout Ledger) -> Void) -> Bool {
+        let before = monthTotals
         do {
             try write()
             apply(&ledger)
             lastError = nil
-            return true
         } catch {
             lastError = L("Не получилось сохранить: ", "Couldn’t save: ") + "\(error)"
             return false
         }
+        var events: [MascotEvent] = []
+        if addsIncome { events.append(.incomeAdded) }
+        if MoneyEngine.netGrew(from: before, to: monthTotals) { events.append(.netGrew) }
+        play(events)
+        return true
     }
 
     private static func upsert<T: Identifiable>(_ item: T, into items: inout [T]) where T.ID == UUID {
@@ -171,14 +196,26 @@ final class MoneyStore {
         }
     }
 
-    /// Событие живёт 2,5 секунды — столько длится «поймал монетку».
-    private func emit(_ event: MascotEvent) {
+    /// События по очереди, первое — сразу. Новое сохранение перебивает старую очередь.
+    private func play(_ events: [MascotEvent]) {
+        guard let first = events.first else { return }
         eventResetTask?.cancel()
-        mascotEvent = event
+        mascotEvent = first
         eventResetTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled else { return }
+            for (index, event) in events.enumerated() {
+                if index > 0 { self?.mascotEvent = event }
+                try? await Task.sleep(for: Self.duration(of: event))
+                guard !Task.isCancelled else { return }
+            }
             self?.mascotEvent = nil
+        }
+    }
+
+    /// «Поймал монетку» — 2,5 секунды, радость — на миг.
+    private static func duration(of event: MascotEvent) -> Duration {
+        switch event {
+        case .incomeAdded: .seconds(2.5)
+        case .netGrew: .seconds(1.6)
         }
     }
 }

@@ -56,7 +56,7 @@ cd radarchik
 make install   # builds Radarchik.app, copies it to ~/Applications and opens it
 ```
 
-Hover the notch to open the panel; everything else is in the “⋯” menu.
+Hover the notch to open the panel: the month’s total with a one-line take from Radarchik on the left, your projects as pills with mini-faces on the right. The toolbar in the notch’s “ears” leads to daily tips, a new entry, the Mac’s resources, Guard and settings. New income, an upcoming charge or an app eating more than usual open as a short alert that closes by itself.
 
 - To log terminal commands, add the line shown on the Activity tracking screen to `~/.zshrc`.
 - For daily tips, add an API key from [console.anthropic.com](https://console.anthropic.com) in “Daily review & Claude”.

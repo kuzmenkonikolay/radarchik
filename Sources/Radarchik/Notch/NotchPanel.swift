@@ -16,11 +16,12 @@ final class NotchPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        // Выше строки меню, иначе она перекроет раскрытую чёлку.
+        // Выше строки меню и её значков, иначе она перекроет раскрытую чёлку и
+        // заберёт клики по тулбару в верхних 39 pt. `isFloatingPanel` не трогаем:
+        // он молча сбрасывает уровень на `.floating`.
         level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         isMovable = false
-        isFloatingPanel = true
         hidesOnDeactivate = false
         // Ключевой панель становится только при клике в поле ввода (или явно для форм).
         becomesKeyOnlyIfNeeded = true

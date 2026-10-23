@@ -185,6 +185,25 @@ public enum MoneyEngine {
         Mood.worst(summaries.map(\.mood))
     }
 
+    /// Настроение для антенки и лица: по последнему закрытому месяцу, а пока
+    /// ни один не закрыт — по текущему «пока» (решение 2026-10-19). Иначе весь
+    /// первый месяц Радарчик сидел бы с серыми глазами. Правила те же:
+    /// прошлого месяца нет, поэтому плюс с нуля — рост, минус — «в минусе»,
+    /// траты без доходов — «доходов пока нет».
+    public static func overallMood(currentMonth: YearMonth, ledger: Ledger) -> Mood? {
+        let closed = closedSummaries(currentMonth: currentMonth, ledger: ledger)
+        if !closed.isEmpty { return overallMood(closed) }
+        return overallMood(currencySummaries(month: currentMonth, ledger: ledger).filter { $0.current != .zero })
+    }
+
+    /// Вырос ли итог месяца хоть в одной валюте: Радарчик тогда на миг радуется.
+    /// Валюты, которой раньше не было, считаются с нуля.
+    public static func netGrew(from before: [CurrencyAmount], to after: [CurrencyAmount]) -> Bool {
+        after.contains { item in
+            item.amount > (before.first { $0.currency == item.currency }?.amount ?? 0)
+        }
+    }
+
     // MARK: - Все проекты
 
     /// Итог месяца «пока» по всем проектам, по валютам: доходы минус траты.

@@ -1,55 +1,57 @@
+import AppKit
 import SwiftUI
 import RadarchikCore
 
-/// «Куда платить» в этом месяце: регулярные траты, сгруппированные по месту
-/// оплаты, со ссылками на кабинеты. Годовые стоят целиком в месяц продления.
-struct PaymentsView: View {
+/// Куда платить в этом месяце: регулярные траты по месту оплаты, со ссылками
+/// на кабинеты. Годовые стоят целиком в месяц продления. Сумму месяца говорит лицо.
+struct PaymentsScreen: View {
     let model: NotchViewModel
     let store: MoneyStore
+    let look: MascotLook
 
     var body: some View {
-        let groups = store.payments
-        let monthIn = RussianWords.monthPrepositional(store.month.month)
-        let month = Words.monthName(store.month.month)
-
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            PanelHeader(title: L("Куда платить в \(monthIn)", "Where to pay in \(month)"), onBack: { model.pop() }) {
-                if !groups.isEmpty {
-                    Text(MoneyFormat.fullList(store.dueTotals))
-                        .font(.system(size: 12, weight: .semibold))
-                        .monospacedDigit()
+        SideScreen(face: look.spec, phrase: SidePhrases.payments(store)) {
+            let groups = store.payments
+            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                HStack {
+                    Text(L("Куда платить", "Where to pay"))
+                        .font(.bodyBold)
                         .foregroundStyle(DS.Ink.primary)
+                    Spacer(minLength: 0)
+                    if !store.dueTotals.isEmpty {
+                        Text(MoneyFormat.fullList(store.dueTotals))
+                            .font(.bodyBold)
+                            .monospacedDigit()
+                            .foregroundStyle(DS.Tone.payChipText)
+                    }
                 }
-            }
-
-            if groups.isEmpty {
-                Hint(L("В \(monthIn) платить некуда: регулярных трат нет или все выключены.",
-                       "Nothing to pay in \(month): no recurring costs, or they’re all turned off."))
-            } else {
-                FitOrScroll(maxHeight: 560) { list(groups) }
+                if groups.isEmpty {
+                    Hint(L("Заведи регулярную трату — она появится здесь вместе со ссылкой, где платить.",
+                           "Add a recurring cost — it will show up here with a link to where you pay."))
+                } else {
+                    FitOrScroll(maxHeight: 420) { list(groups) }
+                }
             }
         }
     }
 
     private func list(_ groups: [PaymentGroup]) -> some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
             ForEach(groups) { group in
-                // Одна карточка: место оплаты с суммой и ссылкой, ниже — траты.
                 VStack(spacing: 0) {
                     HStack(spacing: 4) {
                         Text(group.title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.bodySemibold)
                             .foregroundStyle(DS.Ink.primary)
                             .lineLimit(1)
-                        // Ссылка — у названия: суммы справа встают ровной колонкой.
                         if let url = group.url {
-                            IconButton(systemImage: "arrow.up.right.square", help: L("Открыть ", "Open ") + (url.host() ?? L("кабинет", "dashboard"))) {
+                            IconButton(systemImage: "arrow.up.right", help: L("Открыть ", "Open ") + (url.host() ?? L("кабинет", "dashboard"))) {
                                 NSWorkspace.shared.open(url)
                             }
                         }
                         Spacer(minLength: DS.Spacing.xs)
                         Text(MoneyFormat.fullList(group.totals))
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.bodySemibold)
                             .monospacedDigit()
                             .foregroundStyle(DS.Ink.primary)
                     }
@@ -68,8 +70,9 @@ struct PaymentsView: View {
                         }
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: DS.Radius.card).fill(DS.Surface.card))
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))
+                .background(RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous).fill(DS.Surface.group))
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous).stroke(DS.Surface.groupBorder, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous))
             }
         }
     }

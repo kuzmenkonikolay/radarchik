@@ -79,11 +79,14 @@ public struct RecurringCost: Identifiable, Hashable, Sendable {
     /// По возрастанию `effectiveFrom`; первая цена — со `startMonth`.
     public var prices: [PriceChange]
     public var createdAt: Date
+    /// День месяца, когда списывают (1…28); nil — день неизвестен, и алерт
+    /// «Пора платить» не приходит (дизайн v2, 2026-10-20).
+    public var dueDay: Int?
 
     public init(
         id: UUID = UUID(), projectId: UUID, name: String, url: String? = nil,
         period: CostPeriod, startMonth: YearMonth, endMonth: YearMonth? = nil,
-        prices: [PriceChange], createdAt: Date = Date()
+        prices: [PriceChange], createdAt: Date = Date(), dueDay: Int? = nil
     ) {
         self.id = id
         self.projectId = projectId
@@ -94,17 +97,18 @@ public struct RecurringCost: Identifiable, Hashable, Sendable {
         self.endMonth = endMonth
         self.prices = prices.sorted { $0.effectiveFrom < $1.effectiveFrom }
         self.createdAt = createdAt
+        self.dueDay = dueDay.map { min(max($0, 1), 28) }
     }
 
     /// Новая трата с одной ценой со стартового месяца.
     public init(
         id: UUID = UUID(), projectId: UUID, name: String, url: String? = nil,
-        period: CostPeriod, startMonth: YearMonth, amount: Int64, createdAt: Date = Date()
+        period: CostPeriod, startMonth: YearMonth, amount: Int64, createdAt: Date = Date(), dueDay: Int? = nil
     ) {
         self.init(
             id: id, projectId: projectId, name: name, url: url, period: period,
             startMonth: startMonth, endMonth: nil,
-            prices: [PriceChange(effectiveFrom: startMonth, amount: amount)], createdAt: createdAt
+            prices: [PriceChange(effectiveFrom: startMonth, amount: amount)], createdAt: createdAt, dueDay: dueDay
         )
     }
 }

@@ -4,7 +4,7 @@ import ServiceManagement
 import RadarchikCore
 
 /// Настройки в UserDefaults: язык, деньги, глаза маскота, наблюдение (этап 3), разбор дня (этап 4),
-/// ресурсы мака (этап 6). Ключ Claude — не здесь, а в Связке ключей.
+/// ресурсы мака (этап 6), «Защита» (SPEC §3б). Ключ Claude — не здесь, а в Связке ключей.
 @MainActor
 @Observable
 final class AppSettings {
@@ -27,10 +27,17 @@ final class AppSettings {
     private(set) var launchAtLogin: Bool
     var launchAtLoginError: String?
 
-    /// Какими глазами смотрит Живая чёлка (2026-10-19). По умолчанию — первые, капсулы.
-    /// Облик у маскота один: запасные Домовой и Радарчик убраны в тот же день.
-    var eyeStyle: EyeStyle {
-        didSet { defaults.set(eyeStyle.rawValue, forKey: Key.eyeStyle) }
+    /// Короткие звуки: монетка, «поп» раскрытия, карандаш. Кнопка в тулбаре.
+    var soundEnabled: Bool {
+        didSet { defaults.set(soundEnabled, forKey: Key.soundEnabled) }
+    }
+    /// За сколько дней до списания приходит «Пора платить» (дизайн v2).
+    var payReminderDays: Int {
+        didSet { defaults.set(payReminderDays, forKey: Key.payReminderDays) }
+    }
+    /// Напоминания о платежах: id (трата|месяц) → когда напомнить снова; `distantFuture` — больше не надо.
+    private(set) var paymentReminders: [String: Date] {
+        didSet { defaults.set(paymentReminders.mapValues { $0.timeIntervalSince1970 }, forKey: Key.paymentReminders) }
     }
 
     // MARK: - Наблюдение (этап 3)
@@ -87,6 +94,26 @@ final class AppSettings {
         didSet { defaults.set(resourceNotifications, forKey: Key.resourceNotifications) }
     }
 
+    // MARK: - Защита (SPEC §3б)
+
+    /// «Защита» целиком. По умолчанию включена только у тех, у кого стоял старый
+    /// bash-guard (`~/work/guard`): им она его заменяет. Остальным — в настройках.
+    var guardEnabled: Bool {
+        didSet { defaults.set(guardEnabled, forKey: Key.guardEnabled) }
+    }
+    /// Следить за подозрительными процессами (node -e, curl | sh…).
+    var guardWatchProcesses: Bool {
+        didSet { defaults.set(guardWatchProcesses, forKey: Key.guardWatchProcesses) }
+    }
+    /// Проверять настройки Claude Code.
+    var guardAuditClaude: Bool {
+        didSet { defaults.set(guardAuditClaude, forKey: Key.guardAuditClaude) }
+    }
+    /// «Сетевой надзор»: куда ходят скрипты, которые запустил не ты, и инструменты агентов.
+    var guardWatchNetwork: Bool {
+        didSet { defaults.set(guardWatchNetwork, forKey: Key.guardWatchNetwork) }
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -104,7 +131,9 @@ final class AppSettings {
         }
         self.languageChoice = defaults.string(forKey: Key.language).flatMap(LanguageChoice.init(rawValue:)) ?? .system
         self.showNumbersWhenCollapsed = defaults.bool(forKey: Key.showNumbers)
-        self.eyeStyle = defaults.string(forKey: Key.eyeStyle).flatMap(EyeStyle.init(rawValue:)) ?? .capsule
+        self.soundEnabled = (defaults.object(forKey: Key.soundEnabled) as? Bool) ?? true
+        self.payReminderDays = (defaults.object(forKey: Key.payReminderDays) as? Int) ?? 2
+        self.paymentReminders = ((defaults.dictionary(forKey: Key.paymentReminders) as? [String: Double]) ?? [:]).mapValues { Date(timeIntervalSince1970: $0) }
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.observationEnabled = defaults.bool(forKey: Key.observationEnabled)
         self.excludedApps = (defaults.stringArray(forKey: Key.excludedApps)).map(Set.init) ?? ObservationRules.defaultExcludedApps
@@ -117,8 +146,26 @@ final class AppSettings {
         self.tipsSeenAt = defaults.object(forKey: Key.tipsSeenAt) as? Date
         self.resourcesEnabled = (defaults.object(forKey: Key.resourcesEnabled) as? Bool) ?? true
         self.resourceNotifications = defaults.bool(forKey: Key.resourceNotifications)
+        self.guardEnabled = (defaults.object(forKey: Key.guardEnabled) as? Bool) ?? (LegacyGuard.isInstalled || GuardHelper.isInstalled)
+        self.guardWatchProcesses = (defaults.object(forKey: Key.guardWatchProcesses) as? Bool) ?? true
+        self.guardAuditClaude = (defaults.object(forKey: Key.guardAuditClaude) as? Bool) ?? true
+        self.guardWatchNetwork = (defaults.object(forKey: Key.guardWatchNetwork) as? Bool) ?? true
         // didSet в init не срабатывает — язык ставим сами, до первого экрана.
         Language.setAppWide(language)
+    }
+
+    /// Пора ли напомнить об этом платеже: ещё не напоминали или срок «напомни завтра» прошёл.
+    func isPaymentReminderDue(_ id: String, now: Date = Date()) -> Bool {
+        guard let next = paymentReminders[id] else { return true }
+        return next <= now
+    }
+
+    /// Напомнили (снова — не раньше `until`) или «Открыл кабинет» (`distantFuture`).
+    func markPaymentReminded(_ id: String, until: Date) {
+        paymentReminders[id] = until
+        // Старые месяцы не копим.
+        let cutoff = Date().addingTimeInterval(-90 * 86_400)
+        paymentReminders = paymentReminders.filter { $0.value == .distantFuture ? $0.key.hasSuffix(YearMonth(Date()).stringValue) || $0.key.hasSuffix(YearMonth(Date()).next.stringValue) : $0.value > cutoff }
     }
 
     /// Автозапуск через SMAppService. Работает только у собранного .app
@@ -149,6 +196,9 @@ final class AppSettings {
         static let mascotSkin = "mascotSkin"
         static let livingNotchChosen = "livingNotchChosen"
         static let eyeStyle = "eyeStyle"
+        static let soundEnabled = "soundEnabled"
+        static let payReminderDays = "payReminderDays"
+        static let paymentReminders = "paymentReminders"
         static let observationEnabled = "observationEnabled"
         static let excludedApps = "excludedApps"
         static let excludedDomains = "excludedDomains"
@@ -160,5 +210,9 @@ final class AppSettings {
         static let tipsSeenAt = "tipsSeenAt"
         static let resourcesEnabled = "resourcesEnabled"
         static let resourceNotifications = "resourceNotifications"
+        static let guardEnabled = "guardEnabled"
+        static let guardWatchProcesses = "guardWatchProcesses"
+        static let guardAuditClaude = "guardAuditClaude"
+        static let guardWatchNetwork = "guardWatchNetwork"
     }
 }

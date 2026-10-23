@@ -2,10 +2,11 @@ import AppKit
 import SwiftUI
 import RadarchikCore
 
-/// Экран «Система» (этап 6, SPEC §3а): мак сейчас, график за час, кто больше
+/// Вкладка «Система» (этап 6, SPEC §3а): мак сейчас, график за час, кто больше
 /// всех ест и тревоги за сутки. Читает `ResourceMonitor`, а рисует
 /// `SystemScreen` — он без моделей, поэтому его рисует и лист картинок.
-struct SystemView: View {
+/// Спокойно ли на маке и копятся ли нормы — говорит облачко.
+struct SystemTab: View {
     let model: NotchViewModel
     let resources: ResourceMonitor
     let settings: AppSettings
@@ -14,68 +15,52 @@ struct SystemView: View {
     @State private var recent: [ResourceAlert] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            PanelHeader(title: L("Система", "System"), onBack: { model.pop() }) {
-                PillButton(L("Мониторинг системы", "Activity Monitor"), systemImage: "arrow.up.right") { Self.openActivityMonitor() }
-                    .help(L("Там можно закрыть приложение, которое ест слишком много", "Quit an app that uses too much from there"))
-            }
-            if !settings.resourcesEnabled {
-                Hint(L("Слежение за ресурсами выключено. Включить — в настройках.", "Resource watching is off. Turn it on in settings."))
-                PillButton(L("Включить", "Turn on"), prominent: true) { resources.setEnabled(true) }
-            } else if let system = resources.system {
+        Group {
+            if let system = resources.system {
                 SystemScreen(
                     system: system, apps: resources.apps, history: resources.history,
-                    recent: recent, normsCount: resources.normsCount, focus: focus
+                    recent: recent, focus: focus
                 ) {
                     // Записку видно только у свёрнутой чёлки — сворачиваем и показываем.
                     model.requestCollapse()
                     resources.showExample()
                 }
-            } else {
-                Hint(L("Первый замер — через пару секунд.", "First reading in a couple of seconds."))
             }
         }
         .task(id: resources.alerts.map(\.id)) { recent = await resources.recentAlerts() }
     }
-
-    private static func openActivityMonitor() {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.ActivityMonitor") else { return }
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
-    }
 }
 
-/// Сам экран: плитки, вкладки, график, список и тревоги. Только данные на входе.
+/// Сам экран: плитки, график, список и тревоги. Только данные на входе.
+/// Плитки — и переключатель: клик по «Процессору», «Памяти» или «Батарее»
+/// меняет график и список (отдельный ряд вкладок был лишним).
 struct SystemScreen: View {
     let system: SystemSnapshot
     let apps: [AppUsageRow]
     let history: [SystemMinute]
     let recent: [ResourceAlert]
-    let normsCount: Int
     var focus: SystemFocus?
     var onExample: () -> Void = {}
 
     @State private var metric: SystemMetric = .cpu
 
-    init(system: SystemSnapshot, apps: [AppUsageRow], history: [SystemMinute], recent: [ResourceAlert], normsCount: Int, focus: SystemFocus? = nil, onExample: @escaping () -> Void = {}) {
+    init(system: SystemSnapshot, apps: [AppUsageRow], history: [SystemMinute], recent: [ResourceAlert], focus: SystemFocus? = nil, onExample: @escaping () -> Void = {}) {
         self.system = system
         self.apps = apps
         self.history = history
         self.recent = recent
-        self.normsCount = normsCount
         self.focus = focus
         self.onExample = onExample
         _metric = State(initialValue: focus?.metric ?? .cpu)
     }
 
     var body: some View {
-        FitOrScroll(maxHeight: 600) { content }
+        FitOrScroll(maxHeight: 560) { content }
     }
 
     private var content: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             tiles
-            SegmentedPicker(selection: $metric) { $0.title }
-                .padding(.top, 4)
             chart
             topApps
             if !recent.isEmpty { alertsList }
@@ -87,25 +72,40 @@ struct SystemScreen: View {
 
     private var tiles: some View {
         HStack(spacing: DS.Spacing.xs) {
-            SystemTile(title: L("Процессор", "CPU"), value: ResourceFormat.percent(system.cpuPercent), detail: L("весь мак", "whole Mac"))
+            SystemTile(title: L("Процессор", "CPU"), value: ResourceFormat.percent(system.cpuPercent), detail: L("весь мак", "whole Mac"), isSelected: metric == .cpu) {
+                select(.cpu)
+            }
             if let memory = system.memory {
                 SystemTile(
                     title: L("Память", "Memory"),
                     value: ResourceFormat.memoryUsage(used: Double(memory.usedBytes), total: Double(memory.totalBytes)),
                     detail: ResourceFormat.pressure(memory.pressure),
-                    warning: memory.pressure == .critical
-                )
+                    warning: memory.pressure == .critical,
+                    isSelected: metric == .memory
+                ) {
+                    select(.memory)
+                }
             }
             SystemTile(
                 title: L("Температура", "Temperature"),
                 value: system.temperature.map(ResourceFormat.temperature) ?? ResourceFormat.thermal(system.thermal),
                 detail: system.temperature == nil ? L("датчиков нет", "no sensors") : ResourceFormat.thermal(system.thermal),
-                warning: system.thermal >= .serious
-            )
+                warning: system.thermal >= .serious,
+                isSelected: false
+            ) {
+                // Температура — про процессор: греет он.
+                select(.cpu)
+            }
             if let battery = system.battery {
-                SystemTile(title: L("Батарея", "Battery"), value: "\(Int(battery.level.rounded()))%", detail: batteryDetail(battery))
+                SystemTile(title: L("Батарея", "Battery"), value: "\(Int(battery.level.rounded()))%", detail: batteryDetail(battery), isSelected: metric == .energy) {
+                    select(.energy)
+                }
             }
         }
+    }
+
+    private func select(_ metric: SystemMetric) {
+        withAnimation(.smooth(duration: 0.28)) { self.metric = metric }
     }
 
     private func batteryDetail(_ battery: BatteryReading) -> String {
@@ -146,10 +146,11 @@ struct SystemScreen: View {
     // MARK: - Кто больше всех ест
 
     private var topApps: some View {
-        let rows = sortedApps.prefix(6)
+        let rows = sortedApps.prefix(5)
         let top = rows.first.map(value) ?? 1
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 7) {
             SectionTitle(L("Сейчас больше всех", "Top right now"))
+                .help(L("У приложения 100% — одно ядро целиком", "For an app, 100% is one whole core"))
             ForEach(Array(rows)) { row in
                 AppLoadRow(
                     name: row.usage.app.name, value: formatted(value(row)), usual: usual(row).map(formatted),
@@ -219,62 +220,76 @@ struct SystemScreen: View {
         }
     }
 
-    // MARK: - Подсказка
+    // MARK: - Кнопки
 
     private var footer: some View {
-        HStack(alignment: .top, spacing: DS.Spacing.xs) {
-            Hint(normsHint)
-            Spacer(minLength: DS.Spacing.xs)
+        HStack(spacing: DS.Spacing.xs) {
+            PillButton(L("Мониторинг системы", "Activity Monitor"), systemImage: "arrow.up.right") { Self.openActivityMonitor() }
+                .help(L("Там можно закрыть приложение, которое ест слишком много", "Quit an app that uses too much from there"))
+            Spacer(minLength: 0)
             PillButton(L("Пример тревоги", "Sample alert"), action: onExample)
                 .help(L("Показать, как Радарчик скажет о перерасходе", "See how Radarchik tells you about overuse"))
         }
     }
 
-    private var normsHint: String {
-        let cores = L("У приложения 100% — одно ядро целиком.", "For an app, 100% is one whole core.")
-        guard normsCount > 0 else {
-            return cores + L(" Нормы копятся неделю: пока их нет, тревожу только при очень большой нагрузке.",
-                             " Norms take a week to learn: until then I alert only on very heavy load.")
-        }
-        let apps = Words.plural(normsCount, ru: ("приложения", "приложений", "приложений"), en: ("app", "apps"))
-        return cores + L(" Нормы за неделю есть у \(normsCount) \(apps).", " Weekly norms are learned for \(normsCount) \(apps).")
+    private static func openActivityMonitor() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.ActivityMonitor") else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 }
 
-/// Плитка «сейчас»: подпись, крупное значение, пояснение. Тревожное — со значком, не только цветом.
+/// Плитка «сейчас»: подпись, крупное значение, пояснение. Выбранная — светлее,
+/// с акцентной чёрточкой сверху. Тревожное — со значком, не только цветом.
 private struct SystemTile: View {
     let title: String
     let value: String
     let detail: String
     var warning = false
+    var isSelected = false
+    let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 10))
-                .foregroundStyle(DS.Ink.muted)
-            Text(value)
-                .font(.system(size: 15, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(DS.Ink.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            HStack(spacing: 3) {
-                if warning {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(DS.antenna(.yellow))
-                }
-                Text(detail)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
                     .font(.system(size: 10))
-                    .foregroundStyle(warning ? DS.Ink.primary : DS.Ink.secondary)
+                    .foregroundStyle(isSelected ? DS.Ink.secondary : DS.Ink.muted)
+                Text(value)
+                    .font(.system(size: 15, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(DS.Ink.primary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                HStack(spacing: 3) {
+                    if warning {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(DS.antenna(.yellow))
+                    }
+                    Text(detail)
+                        .font(.system(size: 10))
+                        .foregroundStyle(warning ? DS.Ink.primary : DS.Ink.secondary)
+                        .lineLimit(1)
+                }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.chip).fill(isSelected ? DS.Surface.selected : hovering ? DS.Surface.pillHover : DS.Surface.group))
+            .overlay(alignment: .top) {
+                if isSelected {
+                    Capsule()
+                        .fill(DS.Chart.bar)
+                        .frame(width: 18, height: 2)
+                        .padding(.top, 3)
+                }
+            }
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: DS.Radius.chip).fill(DS.Surface.card))
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -311,14 +326,15 @@ private struct AppLoadRow: View {
             }
             .font(.system(size: 12, weight: highlighted ? .semibold : .regular))
             Capsule()
-                .fill(DS.Chart.bar)
-                .frame(height: 4)
+                .fill(DS.Chart.bar.opacity(0.8))
+                .frame(height: 3)
                 .frame(maxWidth: .infinity)
                 .scaleEffect(x: max(min(fraction, 1), 0.02), y: 1, anchor: .leading)
+                .animation(.smooth(duration: 0.4), value: fraction)
         }
         .padding(.vertical, highlighted ? 4 : 0)
         .padding(.horizontal, highlighted ? 6 : 0)
-        .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(highlighted ? DS.Surface.card : .clear))
+        .background(RoundedRectangle(cornerRadius: DS.Radius.field).fill(highlighted ? DS.Surface.group : .clear))
     }
 }
 
@@ -350,15 +366,15 @@ struct HourChart: View {
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(DS.Surface.baseline).frame(height: 1).offset(y: plotHeight - 1)
                 if placed.count > 1 {
-                    area(placed).fill(DS.Chart.bar.opacity(0.18))
-                    line(placed).stroke(DS.Chart.bar, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                    area(placed).fill(DS.Chart.bar.opacity(0.14))
+                    line(placed).stroke(DS.Chart.bar, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 }
                 if let hovered {
                     Rectangle().fill(DS.Ink.muted.opacity(0.6)).frame(width: 1, height: plotHeight).offset(x: hovered.point.x)
                     // Точка с кольцом цвета фона — отделяется от линии.
                     Circle()
                         .fill(DS.Chart.bar)
-                        .overlay(Circle().stroke(DS.Surface.panel, lineWidth: 2))
+                        .overlay(Circle().stroke(Color.black, lineWidth: 2))
                         .frame(width: 8, height: 8)
                         .offset(x: hovered.point.x - 4, y: hovered.point.y - 4)
                 }

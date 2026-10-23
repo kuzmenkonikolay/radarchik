@@ -50,7 +50,7 @@ public final class LedgerRepository {
 
         let recurring = try db.query(
             """
-            SELECT id, project_id, name, url, period, start_month, end_month, created_at
+            SELECT id, project_id, name, url, period, start_month, end_month, created_at, due_day
             FROM recurring_costs ORDER BY created_at, rowid
             """
         ) { row in
@@ -64,7 +64,8 @@ public final class LedgerRepository {
                 startMonth: try Self.month(row, 5),
                 endMonth: row.text(6).flatMap(YearMonth.init(string:)),
                 prices: pricesByCost[id] ?? [],
-                createdAt: Date(timeIntervalSince1970: row.double(7))
+                createdAt: Date(timeIntervalSince1970: row.double(7)),
+                dueDay: row.isNull(8) ? nil : Int(row.int(8))
             )
         }
 
@@ -124,17 +125,18 @@ public final class LedgerRepository {
         try db.transaction {
             try db.run(
                 """
-                INSERT INTO recurring_costs (id, project_id, name, url, period, start_month, end_month, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO recurring_costs (id, project_id, name, url, period, start_month, end_month, created_at, due_day)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     project_id = excluded.project_id, name = excluded.name, url = excluded.url,
                     period = excluded.period, start_month = excluded.start_month,
-                    end_month = excluded.end_month, created_at = excluded.created_at
+                    end_month = excluded.end_month, created_at = excluded.created_at, due_day = excluded.due_day
                 """,
                 [
                     .text(cost.id.uuidString), .text(cost.projectId.uuidString), .text(cost.name),
                     Self.optionalText(cost.url), .text(cost.period.rawValue), .text(cost.startMonth.stringValue),
                     Self.optionalText(cost.endMonth?.stringValue), .real(cost.createdAt.timeIntervalSince1970),
+                    cost.dueDay.map { Database.Value.integer(Int64($0)) } ?? .null,
                 ]
             )
             try db.run("DELETE FROM recurring_cost_prices WHERE cost_id = ?", [.text(cost.id.uuidString)])

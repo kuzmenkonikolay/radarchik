@@ -55,6 +55,15 @@ public enum MoneyFormat {
             .joined(separator: " · ")
     }
 
+    /// Без значка валюты: «+41,6к» — в пилюлях и чипах, где валюта и так видна рядом.
+    /// По-английски значок впереди и короткий — остаётся.
+    public static func bare(_ text: String) -> String {
+        for currency in Currency.allCases where text.hasSuffix(nbsp + currency.symbol) {
+            return String(text.dropLast(currency.symbol.count + 1))
+        }
+        return text
+    }
+
     /// Рост: «+12%», «−4%», «0%».
     public static func percent(_ value: Double) -> String {
         let rounded = Int(value.rounded())
