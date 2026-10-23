@@ -48,22 +48,32 @@ struct AgentWatchTests {
 
     // MARK: - Что просят подписать
 
+    /// Поля подряд, как их пишет ssh. Массивом, а не цепочкой `+`: длинную цепочку
+    /// из `Data` Swift из Xcode 16 (CI) не успевает вывести.
+    private static func wire(_ parts: [Data]) -> Data { parts.reduce(Data(), +) }
+
     @Test func loginSaysWhichUser() throws {
         let blob = try #require(SSHPublicKey.blob(fromLine: Self.keyLine))
         // Так выглядит то, что ssh просит подписать при входе (RFC 4252, §7).
-        let login = SSHWire.string(Data(repeating: 7, count: 32)) + Data([50]) + SSHWire.string("root") + SSHWire.string("ssh-connection")
-            + SSHWire.string("publickey") + SSHWire.bool(true) + SSHWire.string("ssh-ed25519") + SSHWire.string(blob)
+        let login = Self.wire([
+            SSHWire.string(Data(repeating: 7, count: 32)), Data([50]), SSHWire.string("root"), SSHWire.string("ssh-connection"),
+            SSHWire.string("publickey"), SSHWire.bool(true), SSHWire.string("ssh-ed25519"), SSHWire.string(blob),
+        ])
         #expect(SSHSignPurpose(signedData: login) == .login(user: "root"))
         // OpenSSH 8.9+: вход с привязкой к серверу — тот же вход.
-        let bound = SSHWire.string(Data(repeating: 7, count: 32)) + Data([50]) + SSHWire.string("git") + SSHWire.string("ssh-connection")
-            + SSHWire.string("publickey-hostbound-v00@openssh.com") + SSHWire.bool(true) + SSHWire.string("ssh-ed25519") + SSHWire.string(blob)
-            + SSHWire.string(Data("host-key".utf8))
+        let bound = Self.wire([
+            SSHWire.string(Data(repeating: 7, count: 32)), Data([50]), SSHWire.string("git"), SSHWire.string("ssh-connection"),
+            SSHWire.string("publickey-hostbound-v00@openssh.com"), SSHWire.bool(true), SSHWire.string("ssh-ed25519"), SSHWire.string(blob),
+            SSHWire.string(Data("host-key".utf8)),
+        ])
         #expect(SSHSignPurpose(signedData: bound) == .login(user: "git"))
     }
 
     @Test func gitSignatureSaysItsNamespace() {
         // `ssh-keygen -Y sign -n git` — так git подписывает коммиты и теги.
-        let commit = Data("SSHSIG".utf8) + SSHWire.string("git") + SSHWire.string("") + SSHWire.string("sha512") + SSHWire.string(Data(repeating: 9, count: 64))
+        let commit = Self.wire([
+            Data("SSHSIG".utf8), SSHWire.string("git"), SSHWire.string(""), SSHWire.string("sha512"), SSHWire.string(Data(repeating: 9, count: 64)),
+        ])
         #expect(SSHSignPurpose(signedData: commit) == .signature(namespace: "git"))
         #expect(SSHSignPurpose(signedData: Data("garbage".utf8)) == .other)
         #expect(SSHSignPurpose(signedData: Data()) == .other)
