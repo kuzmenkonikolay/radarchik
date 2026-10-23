@@ -20,8 +20,15 @@ final class ResourceNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     /// Запрещено ли в Системных настройках — сказать об этом на экране настроек.
+    /// Через колбэк: из него уходит только Bool. В SDK macOS 15 (Xcode 16) сами
+    /// настройки не `Sendable`, и `await notificationSettings()` там не собирается.
     func isDenied() async -> Bool {
-        await center.notificationSettings().authorizationStatus == .denied
+        let center = center
+        return await withCheckedContinuation { continuation in
+            center.getNotificationSettings { settings in
+                continuation.resume(returning: settings.authorizationStatus == .denied)
+            }
+        }
     }
 
     func post(_ alert: ResourceAlert) {
