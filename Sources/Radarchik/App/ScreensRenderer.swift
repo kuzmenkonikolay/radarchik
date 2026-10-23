@@ -263,6 +263,14 @@ final class PreviewWorld {
         )
     }
 
+    /// Всё спокойно, как сразу после запуска: ни тревог ресурсов, ни «Защиты» (ролик
+    /// возвращается сюда после алертов).
+    func showCalm() {
+        resources.preview(state(alerts: []))
+        protection.preview(keys: guardKeys(sshOpen: false), alerts: [], recent: guardJournal, scans: guardScans, audit: guardAudit, hooksConnected: false,
+                           helper: .notInstalled, now: now)
+    }
+
     /// Открыт ssh (осталось 4:12) и только что поймали node -e из Cursor.
     func showGuardAlert() {
         resources.preview(state(alerts: []))

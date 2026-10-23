@@ -25,10 +25,10 @@ final class SoundPlayer {
         player.play()
     }
 
-    private static let rate = 44_100.0
+    static let rate = 44_100.0
 
     /// Громкость растёт с серьёзностью: сигнал «Защиты» слышно и из-за стола.
-    private static func volume(for kind: SoundKind) -> Float {
+    static func volume(for kind: SoundKind) -> Float {
         switch kind {
         case .coin, .chime, .pencil: 0.22
         case .warning: 0.28
@@ -39,7 +39,7 @@ final class SoundPlayer {
     /// Сами звуки: монетка — два быстрых чистых тона вверх с затуханием; звоночек —
     /// две ноты вверх пониже и мягче; предупреждение — два тона вниз с паузой;
     /// сигнал — три коротких гудка с обертонами; карандаш — шорох из шума с быстрым спадом.
-    private static func samples(for kind: SoundKind) -> [Float] {
+    static func samples(for kind: SoundKind) -> [Float] {
         switch kind {
         case .coin:
             return tone(frequency: 1_975, duration: 0.09, attack: 0.002) + tone(frequency: 2_637, duration: 0.32, attack: 0.002)
