@@ -3,14 +3,15 @@
 #
 #   make test     — тесты логики (деньги, форматы, фраза, база)
 #   make app      — собрать build/Radarchik.app
-#   make run      — собрать и перезапустить
+#   make run      — собрать и перезапустить; root-часть «Защиты», если она стоит и в коде
+#                   изменилась, переставит тоже (sudo спросит пароль) — одна команда на всё
 #   make restart  — перезапустить уже собранный build/Radarchik.app, без сборки
 #   make install  — положить в ~/Applications (нужно для «Запускать при входе»)
 #   make zip      — build/Radarchik.zip для релиза на GitHub
 #   make docs     — скриншоты README, превью ссылки и петля GIF (docs/)
 #   make promo    — ролики для X и Contra (launch/, в git не попадают)
 #   make install-guard   — root-часть «Защиты» (SPEC §3б): ставится один раз, sudo спросит
-#                          пароль; в конце сама перезапускает Радарчик — отдельный make run не нужен
+#                          пароль; в конце сама перезапускает Радарчик. Дальше её обновляет make run
 #   make uninstall-guard — убрать её, вернув ключи тебе
 
 APP_NAME  := Radarchik
@@ -24,11 +25,12 @@ CONFIG    ?= release
 # Сертификата нет (другой мак) — подпись ad-hoc, сборка всё равно работает.
 SIGN_IDENTITY ?= $(shell security find-identity -p codesigning 2>/dev/null | grep -q '"Radarchik dev"' && echo "Radarchik dev" || echo -)
 
-.PHONY: app run restart test install zip docs promo clean install-guard uninstall-guard
+.PHONY: app run restart test install zip docs promo clean install-guard uninstall-guard guard-update
 
 # Root-часть «Защиты»: открывает ключи по Touch ID и сама закрывает по таймеру.
 HELPER    := radarchik-guardd
 HELPER_ID := dev.kuzmenko.radarchik.guardd
+HELPER_INSTALLED := /Library/PrivilegedHelperTools/$(HELPER_ID)
 
 app:
 	swift build -c $(CONFIG) --product $(APP_NAME)
@@ -41,7 +43,21 @@ app:
 	codesign --force --sign "$(SIGN_IDENTITY)" "$(APP)"
 	@echo "Готово: $(APP) (подпись: $(SIGN_IDENTITY))"
 
-run: app restart
+run: app guard-update restart
+
+# Root-часть «Защиты» стоит и собранная отличается от неё (другой CDHash: он не зависит
+# от времени подписи, только от кода) — переставить. Не стоит — ничего: «Защита» по
+# желанию, первый раз ставится `make install-guard` (2026-10-24).
+guard-update:
+	@if [ -f "$(HELPER_INSTALLED)" ]; then \
+		swift build -c $(CONFIG) --product $(HELPER) && \
+		bin="$$(swift build -c $(CONFIG) --show-bin-path)/$(HELPER)" && \
+		codesign --force --sign "$(SIGN_IDENTITY)" --identifier $(HELPER_ID) "$$bin" 2>/dev/null && \
+		new="$$(codesign -dvvv "$$bin" 2>&1 | sed -n 's/^CDHash=//p')" && \
+		old="$$(codesign -dvvv "$(HELPER_INSTALLED)" 2>&1 | sed -n 's/^CDHash=//p')" && \
+		if [ "$$new" = "$$old" ]; then echo "Root-часть «Защиты» та же — не трогаю"; \
+		else echo "Root-часть «Защиты» изменилась — переставляю"; Support/guard/install.sh "$$bin" "$(APP)"; fi; \
+	fi
 
 # Старый экземпляр закрываем и ждём, пока он уйдёт (до 5 с): новый при старте
 # проверяет, что он один, и молча выходит, если старый ещё не успел закрыться.
@@ -53,7 +69,7 @@ restart:
 test:
 	swift test
 
-install: app
+install: app guard-update
 	-pkill -x $(APP_NAME)
 	mkdir -p ~/Applications
 	rm -rf ~/Applications/$(APP_NAME).app
