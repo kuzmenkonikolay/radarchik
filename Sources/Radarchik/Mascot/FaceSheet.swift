@@ -5,8 +5,8 @@ import RadarchikCore
 /// Лист эмоций (проверка этапа 2 дизайна v2) и лицо во всех размерах — для
 /// моей проверки рисовки (я экран не вижу, а PNG — вижу).
 ///
-/// Запуск: `.build/debug/Radarchik --render-mascots <папка>` — рисует и выходит,
-/// панель не создаётся.
+/// Запуск: `.build/debug/Radarchik --render-mascots <папка> [--language en|ru]` — рисует
+/// и выходит, панель не создаётся. По-английски лист эмоций идёт в case study на Contra.
 @MainActor
 enum MascotSheetRenderer {
     typealias Failure = RenderFailure
@@ -35,23 +35,26 @@ struct EmotionsSheet: View {
         let caption: String
     }
 
-    private let items: [Item] = [
-        Item(spec: .main(.smug, tone: DS.Tone.info), title: "Прищур", caption: "по умолчанию — «я всё записал»"),
-        Item(spec: .main(.happy, tone: DS.Tone.plus), title: "Доволен", caption: "месяц в плюсе и растёт"),
-        Item(spec: .main(.worried, tone: DS.Tone.tips), title: "Переживает", caption: "проект проседает"),
-        Item(spec: .main(.sad, tone: DS.Tone.minus), title: "Грустит", caption: "проект в минусе"),
-        Item(spec: .main(.squint, tone: DS.Tone.asleep), title: "Записал", caption: "заметил, что ты делаешь руками одно и то же"),
-        Item(spec: .main(.wide, tone: DS.Tone.face), title: "Заметил", caption: "навёл курсор или пора платить"),
-        Item(spec: .main(.sleep, tone: DS.Tone.dim), title: "Спит", caption: "ночь или ты отошёл от компа"),
-        Item(spec: .main(.smug, tone: DS.Tone.tips, hands: .wave, glasses: true), title: "Советы готовы", caption: "надел очки и машет"),
-    ]
+    private var items: [Item] {
+        [
+            Item(spec: .main(.smug, tone: DS.Tone.info), title: L("Прищур", "Squint"), caption: L("по умолчанию — «я всё записал»", "by default — “I’ve logged it all”")),
+            Item(spec: .main(.happy, tone: DS.Tone.plus), title: L("Доволен", "Happy"), caption: L("месяц в плюсе и растёт", "the month is in profit and growing")),
+            Item(spec: .main(.worried, tone: DS.Tone.tips), title: L("Переживает", "Worried"), caption: L("проект проседает", "a project is slipping")),
+            Item(spec: .main(.sad, tone: DS.Tone.minus), title: L("Грустит", "Sad"), caption: L("проект в минусе", "a project is in the red")),
+            Item(spec: .main(.squint, tone: DS.Tone.asleep), title: L("Записал", "Noted"), caption: L("заметил, что ты делаешь руками одно и то же", "saw you doing the same thing by hand")),
+            Item(spec: .main(.wide, tone: DS.Tone.face), title: L("Заметил", "Noticed"), caption: L("навёл курсор или пора платить", "the cursor is on it, or it’s time to pay")),
+            Item(spec: .main(.sleep, tone: DS.Tone.dim), title: L("Спит", "Asleep"), caption: L("ночь или ты отошёл от компа", "night, or you stepped away")),
+            Item(spec: .main(.smug, tone: DS.Tone.tips, hands: .wave, glasses: true), title: L("Советы готовы", "Tips ready"), caption: L("надел очки и машет", "puts on glasses and waves")),
+        ]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Лист эмоций")
+            Text(L("Лист эмоций", "Faces"))
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(DS.Ink.primary)
-            Text("Только глаза и рот: эмоцию делают форма и наклон век. Цвет свечения показывает состояние денег.")
+            Text(L("Только глаза и рот: эмоцию делают форма и наклон век. Цвет свечения показывает состояние денег.",
+                   "Only eyes and a mouth: the shape and tilt of the lids make the emotion. The glow shows how the money is doing."))
                 .font(.system(size: 14))
                 .foregroundStyle(DS.Ink.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(220), spacing: 16), count: 4), spacing: 16) {

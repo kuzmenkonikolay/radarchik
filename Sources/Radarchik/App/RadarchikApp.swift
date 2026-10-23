@@ -24,10 +24,13 @@ enum RadarchikApp {
         // а Радарчик не падает (см. `SigpipeTrap`).
         SigpipeTrap.install()
         let app = NSApplication.shared
-        // `--render-mascots <папка>` — нарисовать лист чёлки и глаз (PNG и петля GIF) и выйти (без панели).
+        // `--render-mascots <папка> [--language en|ru]` — нарисовать лист эмоций и размеров лица и выйти (без панели).
         if let flag = CommandLine.arguments.firstIndex(of: "--render-mascots") {
             let path = CommandLine.arguments.dropFirst(flag + 1).first ?? FileManager.default.temporaryDirectory.path
-            finish { try MascotSheetRenderer.render(to: URL(fileURLWithPath: path)) }
+            finish {
+                Language.setAppWide(requestedLanguage)
+                try MascotSheetRenderer.render(to: URL(fileURLWithPath: path))
+            }
         }
         // `--render-screens <папка> [--language en|ru]` — все экраны панели на выдуманных данных, в PNG.
         if let flag = CommandLine.arguments.firstIndex(of: "--render-screens") {
