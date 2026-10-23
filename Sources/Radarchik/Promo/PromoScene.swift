@@ -11,29 +11,41 @@ import RadarchikCore
 // «Убить» → советы Claude → заставка со ссылкой на GitHub. Денег и оплаты в алертах
 // нет (2026-10-24, пользователь).
 
-/// Формат кадра: широкий — для X и Contra, квадратный — для ленты с телефона.
+/// Формат кадра: широкий — для X и Contra, квадратный — для ленты с телефона,
+/// 4:3 — обложка проекта на Contra (она хочет 1600×1200, иначе обрезает; 2026-10-24).
 enum PromoFormat: String {
     case wide
     case square
+    case cover
 
     var size: CGSize {
         switch self {
         case .wide: CGSize(width: 1_920, height: 1_080)
         case .square: CGSize(width: 1_080, height: 1_080)
+        case .cover: CGSize(width: 1_600, height: 1_200)
         }
     }
 
     /// Во сколько раз крупнее экран мака, пока камера отъехала: весь по ширине.
     var baseScale: CGFloat { size.width / PromoWorld.screen.width }
 
-    /// Приближение у свёрнутой чёлки и у раскрытой панели (к `baseScale`).
+    // Приближения — к `baseScale`, то есть к ширине кадра: у квадрата и 4:3 они одни,
+    // только алерт в 4:3 мельче — кадр ниже, а подпись под ним должна влезть.
+
+    /// Приближение у свёрнутой чёлки и у раскрытой панели.
     /// Панель дизайна v2 широкая (860), поэтому к ней камера почти не приближается.
     var closeZoom: Double { self == .wide ? 2.2 : 2.6 }
     /// Ещё ближе, пока Радарчик просыпается: полоска без цифр, лицо крупно.
     var wakeZoom: Double { self == .wide ? 3.0 : 4.0 }
     var panelZoom: Double { self == .wide ? 1.0 : 1.45 }
     /// У алерта: самый высокий (с ответом Claude) и подпись под ним влезают в кадр.
-    var alertZoom: Double { self == .wide ? 1.35 : 2.1 }
+    var alertZoom: Double {
+        switch self {
+        case .wide: 1.35
+        case .square: 2.1
+        case .cover: 1.7
+        }
+    }
     /// Сдвиг чёлки вправо, пока панель раскрыта: слева место для подписи.
     var panelPan: Double { self == .wide ? 340 : 0 }
 }
