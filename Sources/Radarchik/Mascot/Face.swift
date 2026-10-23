@@ -195,8 +195,18 @@ struct FaceGeometry: Equatable {
     }
 
     var vector: [Double] {
-        left.values + right.values + [arc, arcEndY, arcControlY] + mouth + [glasses, handsVisible]
-            + [leftHand.x, leftHand.y, rightHand.x, rightHand.y, sweat] + fill.values + glow.values
+        // По частям и без неявного CGFloat → Double: одним выражением Swift из Xcode 16
+        // (CI на macos-15) не успевал вывести типы.
+        let hands = [Double(leftHand.x), Double(leftHand.y), Double(rightHand.x), Double(rightHand.y)]
+        var values = left.values + right.values
+        values += [arc, arcEndY, arcControlY]
+        values += mouth
+        values += [glasses, handsVisible]
+        values += hands
+        values += [sweat]
+        values += fill.values
+        values += glow.values
+        return values
     }
 
     /// Одна квадратичная кривая как три: делим по де Кастельжо на 1/3 и 2/3 —
